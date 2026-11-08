@@ -1,14 +1,8 @@
 #!/usr/bin/env python3
 """
-KJAGU VIRUS ATTACKER v3.0 — AGENTIC AI EDITION
-Deep Anti-Spyware Engine with LLM-Powered Agentic Intelligence
-Research-inspired architecture from:
-  - mrphrazer/agentic-malware-analysis (multi-phase orchestration)
-  - LAMPS multi-agent system (specialized agent roles)
-  - SentinelOne adversarial consensus (cross-validation)
-  - AiSOC/Vigil SOC (LangGraph autonomous investigation)
-
-Boss drops an API key → Kjagu becomes an autonomous threat hunter.
+KJAGU // Anti-Spyware & Endpoint Threat Hunter v3.1
+Defensive Endpoint Security Engine -- Absolute Immortal Inc.
+100% Free & Local -- Zero API Keys Required
 """
 
 import os
@@ -27,25 +21,42 @@ import sqlite3
 import glob
 import traceback
 import textwrap
+import argparse
+import threading
+import logging
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass, asdict, field
 from typing import List, Dict, Optional, Tuple, Set, Callable, Any, Union
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from enum import Enum
-import threading
-import logging
-import urllib.request
-import urllib.error
 
-# Crypto
-from cryptography.fernet import Fernet
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.backends import default_backend
+# UTF-8 & Windows Console ANSI Initialization
+if sys.platform == 'win32':
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+        kernel32 = ctypes.windll.kernel32
+        kernel32.SetConsoleMode(kernel32.GetStdHandle(-11), 7)
+    except Exception:
+        pass
 
-# Windows-specific
+# Optional Cryptography Fallback
+try:
+    from cryptography.fernet import Fernet
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.backends import default_backend
+    HAS_CRYPTO = True
+except ImportError:
+    HAS_CRYPTO = False
+    Fernet = None
+    AESGCM = None
+    PBKDF2HMAC = None
+    hashes = None
+    default_backend = None
+
+# Platform-specific Process/Windows API
 if sys.platform == 'win32':
     import winreg
     import win32api
@@ -60,108 +71,85 @@ if sys.platform == 'win32':
 else:
     import psutil
 
-# Logging
+# Logging Configuration
 logging.basicConfig(
-    level=logging.INFO,
-    format='[%(asctime)s] [KJAGU-AI] %(message)s',
+    level=logging.WARNING,
+    format='[%(asctime)s] [KJAGU] %(message)s',
     datefmt='%H:%M:%S'
 )
-logger = logging.getLogger('KJAGU-AI')
+logger = logging.getLogger('KJAGU')
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CONFIGURATION & API KEY MANAGEMENT
+# TERMINAL UI & STYLING
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class AIProvider(Enum):
-    OPENAI = "openai"
-    ANTHROPIC = "anthropic"
-    OLLAMA = "ollama"
-    DEEPSEEK = "deepseek"
-    CUSTOM = "custom"
+class CLIStyle:
+    CYAN = "\033[1;36m"
+    GREEN = "\033[1;32m"
+    YELLOW = "\033[1;33m"
+    RED = "\033[1;31m"
+    MAGENTA = "\033[1;35m"
+    GRAY = "\033[90m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
 
+    @classmethod
+    def banner(cls) -> str:
+        return f"""{cls.CYAN}╭──────────────────────────────────────────────────────────────────╮
+│  {cls.GREEN}●{cls.RESET} {cls.BOLD}KJAGU // Defensive Endpoint Threat Hunter{cls.RESET}                  {cls.CYAN}│
+│    {cls.GRAY}Zero API Keys · Local Heuristic Engine · v3.1 · Ready{cls.RESET}       {cls.CYAN}│
+╰──────────────────────────────────────────────────────────────────╯{cls.RESET}"""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CONFIGURATION
+# ═══════════════════════════════════════════════════════════════════════════════
 
 @dataclass
 class KjaguConfig:
-    """Kjagu configuration — API keys, preferences, tuning"""
-    ai_provider: AIProvider = AIProvider.OLLAMA
-    api_key: str = ""
-    api_base: str = ""  # For custom/Ollama endpoints
-    model: str = "qwen2.5:14b"  # Default local model
-    temperature: float = 0.1  # Low temp for security analysis
-    max_tokens: int = 4096
-    enable_aggressive_mode: bool = False  # If True, AI can auto-kill without confirmation
-    user_context: str = ""  # "gamer", "developer", "trader", etc. — reduces false positives
-    evidence_limit: int = 50  # Max evidence items per analysis batch
-    consensus_threshold: float = 0.75  # Heuristic + AI must agree above this
+    """Kjagu scanner settings and policy parameters"""
+    enable_aggressive_mode: bool = False
+    user_context: str = ""
+    evidence_limit: int = 60
+    consensus_threshold: float = 0.70
 
     @classmethod
     def load(cls) -> 'KjaguConfig':
-        """Load from ~/.kjagu/config.json or env vars"""
         config_path = Path.home() / ".kjagu" / "config.json"
         config = cls()
-
-        # Environment variables take precedence
-        if os.environ.get("KJAGU_OPENAI_KEY"):
-            config.ai_provider = AIProvider.OPENAI
-            config.api_key = os.environ["KJAGU_OPENAI_KEY"]
-            config.model = os.environ.get("KJAGU_MODEL", "gpt-4o-mini")
-            config.api_base = "https://api.openai.com/v1"
-        elif os.environ.get("KJAGU_ANTHROPIC_KEY"):
-            config.ai_provider = AIProvider.ANTHROPIC
-            config.api_key = os.environ["KJAGU_ANTHROPIC_KEY"]
-            config.model = os.environ.get("KJAGU_MODEL", "claude-3-haiku-20240307")
-            config.api_base = "https://api.anthropic.com"
-        elif os.environ.get("KJAGU_DEEPSEEK_KEY"):
-            config.ai_provider = AIProvider.DEEPSEEK
-            config.api_key = os.environ["KJAGU_DEEPSEEK_KEY"]
-            config.model = os.environ.get("KJAGU_MODEL", "deepseek-chat")
-            config.api_base = "https://api.deepseek.com/v1"
-        elif os.environ.get("KJAGU_OLLAMA_URL"):
-            config.ai_provider = AIProvider.OLLAMA
-            config.api_key = "ollama"  # Not used but required
-            config.model = os.environ.get("KJAGU_MODEL", "qwen2.5:14b")
-            config.api_base = os.environ["KJAGU_OLLAMA_URL"]
-
-        # Load from file if exists
         if config_path.exists():
             try:
-                with open(config_path, 'r') as f:
+                with open(config_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 for k, v in data.items():
                     if hasattr(config, k):
                         setattr(config, k, v)
-                if isinstance(config.ai_provider, str):
-                    config.ai_provider = AIProvider(config.ai_provider)
             except Exception as e:
                 logger.warning(f"[CONFIG] Failed to load config: {e}")
-
         return config
 
     def save(self):
-        """Save to ~/.kjagu/config.json"""
         config_path = Path.home() / ".kjagu"
-        config_path.mkdir(exist_ok=True)
-        data = asdict(self)
-        data['ai_provider'] = self.ai_provider.value
-        with open(config_path / "config.json", 'w') as f:
-            json.dump(data, f, indent=2)
+        config_path.mkdir(parents=True, exist_ok=True)
+        with open(config_path / "config.json", 'w', encoding='utf-8') as f:
+            json.dump(asdict(self), f, indent=2)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# EVIDENCE & THREAT DATA MODELS
+# DATA MODELS
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @dataclass
 class Evidence:
-    """A single piece of evidence collected by ReconAgent"""
+    """A single piece of endpoint evidence collected by ReconAgent"""
     evidence_id: str
-    category: str  # process, memory, network, registry, file, kernel, browser
-    source: str    # e.g., "psutil", "win32api", "registry"
+    category: str
+    source: str
     data: Dict[str, Any]
     raw_value: str = ""
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
-    hash: str = ""  # SHA256 of raw evidence for deduplication
+    hash: str = ""
 
     def __post_init__(self):
         if not self.hash:
@@ -172,260 +160,317 @@ class Evidence:
 
 @dataclass
 class Hypothesis:
-    """AI-generated hypothesis about a potential threat"""
+    """Threat hypothesis generated by heuristic analysis"""
     hypothesis_id: str
     description: str
-    confidence: float  # 0.0 - 1.0
-    evidence_refs: List[str]  # Evidence IDs that support this
-    mitre_technique: str = ""  # e.g., "T1055" for Process Injection
+    confidence: float
+    evidence_refs: List[str]
+    mitre_technique: str = ""
     recommended_action: str = "INVESTIGATE"
     rationale: str = ""
 
 
 @dataclass
 class ThreatReport:
-    """Final threat verdict"""
+    """Final verified threat report"""
     threat_id: str
     threat_type: str
-    severity: str  # CRITICAL / HIGH / MEDIUM / LOW / INFO
+    severity: str
     target_name: str
     target_pid: int
     target_path: str
     description: str
-    heuristic_score: float  # 0.0 - 1.0 from traditional scanning
-    ai_score: float  # 0.0 - 1.0 from LLM analysis
-    consensus_score: float  # Combined score
+    consensus_score: float
     evidence: List[Evidence]
     hypotheses: List[Hypothesis]
     recommended_action: str
     action_taken: str = "PENDING"
-    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LLM CLIENT — Multi-Provider Support
+# QUARANTINE VAULT
 # ═══════════════════════════════════════════════════════════════════════════════
 
-class LLMClient:
-    """Unified LLM client supporting OpenAI, Anthropic, DeepSeek, Ollama"""
+class KjaguQuarantineVault:
+    """Secure quarantine storage with XOR obfuscation and metadata catalog"""
 
-    def __init__(self, config: KjaguConfig):
-        self.config = config
-        self._validate_setup()
+    def __init__(self):
+        self.quarantine_dir = Path.home() / ".kjagu" / "quarantine"
+        self.quarantine_dir.mkdir(parents=True, exist_ok=True)
+        self.index_file = self.quarantine_dir / "catalog.json"
+        self._index = self._load_index()
 
-    def _validate_setup(self):
-        if self.config.ai_provider == AIProvider.OLLAMA:
-            # Test Ollama connection
+    def _load_index(self) -> Dict[str, Dict]:
+        if self.index_file.exists():
             try:
-                req = urllib.request.Request(
-                    f"{self.config.api_base}/api/tags",
-                    method='GET'
-                )
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    pass
-                logger.info(f"[LLM] Ollama connected at {self.config.api_base}")
+                with open(self.index_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return {}
+
+    def _save_index(self):
+        try:
+            with open(self.index_file, 'w', encoding='utf-8') as f:
+                json.dump(self._index, f, indent=2)
+        except Exception as e:
+            logger.error(f"[QUARANTINE] Failed to save catalog: {e}")
+
+    def quarantine_file(self, file_path: Union[str, Path], threat_name: str) -> Optional[str]:
+        path = Path(file_path)
+        if not path.is_file():
+            return None
+        try:
+            raw = path.read_bytes()
+            file_hash = hashlib.sha256(raw).hexdigest()
+            # Scramble with 0x5A so binary cannot be executed by mistake or malware
+            scrambled = bytes([b ^ 0x5A for b in raw])
+            target_file = self.quarantine_dir / f"{file_hash[:16]}.vir"
+            target_file.write_bytes(scrambled)
+
+            item_id = file_hash[:8]
+            self._index[item_id] = {
+                "id": item_id,
+                "original_path": str(path.absolute()),
+                "quarantine_file": str(target_file),
+                "sha256": file_hash,
+                "threat_name": threat_name,
+                "timestamp": datetime.now().isoformat()
+            }
+            self._save_index()
+
+            try:
+                path.unlink()
             except Exception as e:
-                logger.warning(f"[LLM] Ollama not reachable: {e}")
-        elif not self.config.api_key:
-            logger.error("[LLM] No API key configured! Set KJAGU_OPENAI_KEY or similar.")
+                logger.warning(f"[QUARANTINE] Could not unlink original: {e}")
 
-    def chat(self, system_prompt: str, user_prompt: str, 
-             tools: Optional[List[Dict]] = None) -> Dict:
-        """
-        Send chat completion request.
-        Returns dict with: content, tool_calls, usage, model
-        """
-        if self.config.ai_provider == AIProvider.OPENAI:
-            return self._chat_openai(system_prompt, user_prompt, tools)
-        elif self.config.ai_provider == AIProvider.ANTHROPIC:
-            return self._chat_anthropic(system_prompt, user_prompt, tools)
-        elif self.config.ai_provider == AIProvider.DEEPSEEK:
-            return self._chat_openai(system_prompt, user_prompt, tools)  # OpenAI-compatible
-        elif self.config.ai_provider == AIProvider.OLLAMA:
-            return self._chat_ollama(system_prompt, user_prompt, tools)
-        else:
-            raise ValueError(f"Unknown provider: {self.config.ai_provider}")
+            logger.info(f"[QUARANTINE] Isolated {path.name} -> {target_file.name} (ID: {item_id})")
+            return item_id
+        except Exception as e:
+            logger.error(f"[QUARANTINE] Failed to isolate {file_path}: {e}")
+            return None
 
-    def _chat_openai(self, system: str, user: str, tools: Optional[List[Dict]]) -> Dict:
-        import urllib.request
+    def restore_file(self, item_id: str) -> bool:
+        item = self._index.get(item_id)
+        if not item:
+            for k, v in self._index.items():
+                if v.get("sha256", "").startswith(item_id):
+                    item = v
+                    item_id = k
+                    break
+        if not item:
+            return False
 
-        messages = [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user}
-        ]
-
-        payload = {
-            "model": self.config.model,
-            "messages": messages,
-            "temperature": self.config.temperature,
-            "max_tokens": self.config.max_tokens,
-        }
-        if tools:
-            payload["tools"] = tools
-            payload["tool_choice"] = "auto"
-
-        req = urllib.request.Request(
-            f"{self.config.api_base}/chat/completions",
-            data=json.dumps(payload).encode(),
-            headers={
-                "Authorization": f"Bearer {self.config.api_key}",
-                "Content-Type": "application/json"
-            },
-            method='POST'
-        )
+        q_file = Path(item["quarantine_file"])
+        orig_path = Path(item["original_path"])
+        if not q_file.exists():
+            return False
 
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                result = json.loads(resp.read().decode())
-
-            choice = result["choices"][0]
-            msg = choice["message"]
-
-            return {
-                "content": msg.get("content", ""),
-                "tool_calls": msg.get("tool_calls", []),
-                "usage": result.get("usage", {}),
-                "model": result.get("model", self.config.model),
-                "finish_reason": choice.get("finish_reason", "")
-            }
+            scrambled = q_file.read_bytes()
+            raw = bytes([b ^ 0x5A for b in scrambled])
+            orig_path.parent.mkdir(parents=True, exist_ok=True)
+            orig_path.write_bytes(raw)
+            q_file.unlink()
+            del self._index[item_id]
+            self._save_index()
+            return True
         except Exception as e:
-            logger.error(f"[LLM-OpenAI] Request failed: {e}")
-            return {"content": f"ERROR: {e}", "tool_calls": [], "usage": {}}
+            logger.error(f"[QUARANTINE] Restore failed: {e}")
+            return False
 
-    def _chat_anthropic(self, system: str, user: str, tools: Optional[List[Dict]]) -> Dict:
-        import urllib.request
-
-        payload = {
-            "model": self.config.model,
-            "max_tokens": self.config.max_tokens,
-            "temperature": self.config.temperature,
-            "system": system,
-            "messages": [{"role": "user", "content": user}]
-        }
-        if tools:
-            payload["tools"] = tools
-
-        req = urllib.request.Request(
-            "https://api.anthropic.com/v1/messages",
-            data=json.dumps(payload).encode(),
-            headers={
-                "x-api-key": self.config.api_key,
-                "Content-Type": "application/json",
-                "anthropic-version": "2023-06-01"
-            },
-            method='POST'
-        )
-
-        try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                result = json.loads(resp.read().decode())
-
-            content = result.get("content", [])
-            text = ""
-            tool_calls = []
-
-            for block in content:
-                if block.get("type") == "text":
-                    text += block.get("text", "")
-                elif block.get("type") == "tool_use":
-                    tool_calls.append({
-                        "id": block.get("id"),
-                        "function": {
-                            "name": block.get("name"),
-                            "arguments": json.dumps(block.get("input", {}))
-                        }
-                    })
-
-            return {
-                "content": text,
-                "tool_calls": tool_calls,
-                "usage": result.get("usage", {}),
-                "model": result.get("model", self.config.model),
-                "finish_reason": result.get("stop_reason", "")
-            }
-        except Exception as e:
-            logger.error(f"[LLM-Anthropic] Request failed: {e}")
-            return {"content": f"ERROR: {e}", "tool_calls": [], "usage": {}}
-
-    def _chat_ollama(self, system: str, user: str, tools: Optional[List[Dict]]) -> Dict:
-        import urllib.request
-
-        payload = {
-            "model": self.config.model,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user}
-            ],
-            "stream": False,
-            "options": {"temperature": self.config.temperature}
-        }
-
-        req = urllib.request.Request(
-            f"{self.config.api_base}/api/chat",
-            data=json.dumps(payload).encode(),
-            headers={"Content-Type": "application/json"},
-            method='POST'
-        )
-
-        try:
-            with urllib.request.urlopen(req, timeout=180) as resp:
-                result = json.loads(resp.read().decode())
-
-            msg = result.get("message", {})
-            return {
-                "content": msg.get("content", ""),
-                "tool_calls": [],  # Ollama tool calling varies by version
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0},  # Not always provided
-                "model": result.get("model", self.config.model),
-                "finish_reason": "stop"
-            }
-        except Exception as e:
-            logger.error(f"[LLM-Ollama] Request failed: {e}")
-            return {"content": f"ERROR: {e}", "tool_calls": [], "usage": {}}
+    def list_items(self) -> List[Dict]:
+        return list(self._index.values())
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# AGENTIC AI ENGINE — The Brain of Kjagu
+# COOKIE PROTECTION VAULT
 # ═══════════════════════════════════════════════════════════════════════════════
+
+class KjaguCryptoVault:
+    """Hardware-bound browser session encryption vault"""
+
+    def __init__(self, master_password: Optional[str] = None):
+        self.enabled = HAS_CRYPTO
+        self.vault_dir = Path.home() / ".kjagu_vault"
+        self.vault_dir.mkdir(parents=True, exist_ok=True)
+        self.key_file = self.vault_dir / "vault.key"
+        self.meta_file = self.vault_dir / "vault.meta"
+        if not HAS_CRYPTO:
+            self._key = None
+            return
+        self.hw_fingerprint = self._get_hw_fingerprint()
+        self.master_password = master_password or self._derive_password()
+        self._key = self._load_or_generate_key()
+
+    def _get_hw_fingerprint(self) -> bytes:
+        components = []
+        if sys.platform == 'win32' and wmi:
+            try:
+                c = wmi.WMI()
+                for processor in c.Win32_Processor():
+                    components.append(processor.ProcessorId.strip())
+                for bios in c.Win32_BIOS():
+                    components.append(bios.SerialNumber.strip())
+            except Exception:
+                pass
+        components.append(str(Path.home().absolute()))
+        components.append(os.getlogin() if hasattr(os, 'getlogin') else "user")
+        return hashlib.sha256("|".join(components).encode()).digest()[:16]
+
+    def _derive_password(self) -> str:
+        if self.key_file.exists():
+            return ""
+        return base64.urlsafe_b64encode(os.urandom(32)).decode()
+
+    def _load_or_generate_key(self) -> bytes:
+        if not HAS_CRYPTO:
+            return b""
+        if self.key_file.exists():
+            with open(self.key_file, 'rb') as f:
+                encrypted_key = f.read()
+            salt = self.hw_fingerprint
+            kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt,
+                             iterations=600000, backend=default_backend())
+            key = base64.urlsafe_b64encode(kdf.derive(self.master_password.encode()))
+            fernet = Fernet(key)
+            return fernet.decrypt(encrypted_key)
+
+        key = AESGCM.generate_key(bit_length=256)
+        salt = self.hw_fingerprint
+        kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt,
+                         iterations=600000, backend=default_backend())
+        key_wrap = base64.urlsafe_b64encode(kdf.derive(self.master_password.encode()))
+        fernet = Fernet(key_wrap)
+        with open(self.key_file, 'wb') as f:
+            f.write(fernet.encrypt(key))
+        meta = {
+            "created": datetime.now().isoformat(),
+            "algorithm": "AES-256-GCM",
+            "kdf": "PBKDF2-SHA256-600k",
+            "hardware_bound": True,
+            "version": "3.1"
+        }
+        with open(self.meta_file, 'w', encoding='utf-8') as f:
+            json.dump(meta, f, indent=2)
+        return key
+
+    def encrypt_cookies(self, browser_name: str, cookie_path: Path) -> Optional[Path]:
+        if not self.enabled or not self._key or not cookie_path.exists():
+            return None
+        try:
+            with open(cookie_path, 'rb') as f:
+                plaintext = f.read()
+        except PermissionError:
+            logger.warning(f"[VAULT] Cannot read {cookie_path} -- browser running?")
+            return None
+
+        nonce = os.urandom(12)
+        aesgcm = AESGCM(self._key)
+        associated_data = browser_name.encode() + self.hw_fingerprint
+        ciphertext = aesgcm.encrypt(nonce, plaintext, associated_data)
+        h = hmac.new(self._key, nonce + ciphertext + associated_data, hashlib.sha256)
+        vault_data = nonce + ciphertext + h.digest()
+
+        vault_path = self.vault_dir / f"{browser_name}_cookies.kvault"
+        with open(vault_path, 'wb') as f:
+            f.write(vault_data)
+        self._secure_delete(cookie_path)
+        logger.info(f"[VAULT] {browser_name} cookies secured -> {vault_path}")
+        return vault_path
+
+    def encrypt_all_cookies(self) -> Dict[str, Path]:
+        if not self.enabled:
+            return {}
+        browsers = {
+            "chrome": Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "User Data" / "Default" / "Cookies",
+            "edge": Path.home() / "AppData" / "Local" / "Microsoft" / "Edge" / "User Data" / "Default" / "Cookies",
+            "brave": Path.home() / "AppData" / "Local" / "BraveSoftware" / "Brave-Browser" / "User Data" / "Default" / "Cookies",
+        }
+        results = {}
+        for name, path in browsers.items():
+            result = self.encrypt_cookies(name, path)
+            if result:
+                results[name] = result
+
+        ff_path = Path.home() / "AppData" / "Roaming" / "Mozilla" / "Firefox" / "Profiles"
+        if ff_path.exists():
+            for profile in ff_path.glob("*.default*"):
+                cookie_db = profile / "cookies.sqlite"
+                if cookie_db.exists():
+                    result = self.encrypt_cookies(f"firefox_{profile.name}", cookie_db)
+                    if result:
+                        results[f"firefox_{profile.name}"] = result
+        return results
+
+    def _secure_delete(self, path: Path, passes: int = 3):
+        if not path.exists():
+            return
+        try:
+            size = path.stat().st_size
+            with open(path, 'r+b') as f:
+                for _ in range(passes):
+                    f.seek(0)
+                    f.write(os.urandom(min(size, 1024 * 1024)))
+                    f.flush()
+                    os.fsync(f.fileno())
+            temp_name = path.parent / os.urandom(16).hex()
+            path.rename(temp_name)
+            temp_name.unlink()
+        except Exception:
+            try:
+                path.unlink()
+            except Exception:
+                pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RECON AGENT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+    _fields_ = [
+        ("BaseAddress", ctypes.c_void_p),
+        ("AllocationBase", ctypes.c_void_p),
+        ("AllocationProtect", ctypes.c_ulong),
+        ("RegionSize", ctypes.c_size_t),
+        ("State", ctypes.c_ulong),
+        ("Protect", ctypes.c_ulong),
+        ("Type", ctypes.c_ulong),
+    ]
+
 
 class ReconAgent:
-    """
-    Phase 1: Evidence Collection
-    Collects raw system data — processes, memory, network, registry, files
-    Inspired by: agentic-malware-analysis evidence collection pipeline
-    """
+    """Collects raw system telemetry: processes, memory allocations, persistence, and DLLs"""
 
     def __init__(self):
         self.evidence: List[Evidence] = []
         self._lock = threading.Lock()
 
-    def collect_all(self) -> List[Evidence]:
-        """Run full evidence collection across all categories"""
-        logger.info("[RECON] Starting evidence collection...")
+    def collect_all(self, quick: bool = False) -> List[Evidence]:
         self.evidence = []
-
         collectors = [
             ("processes", self._collect_processes),
             ("network", self._collect_network),
             ("memory_regions", self._collect_memory_regions),
-            ("registry_persistence", self._collect_registry),
-            ("browser_extensions", self._collect_browser_extensions),
-            ("startup_items", self._collect_startup_items),
-            ("services", self._collect_services),
-            ("loaded_dlls", self._collect_loaded_dlls),
         ]
+        if not quick:
+            collectors.extend([
+                ("registry_persistence", self._collect_registry),
+                ("browser_extensions", self._collect_browser_extensions),
+                ("startup_items", self._collect_startup_items),
+                ("services", self._collect_services),
+                ("loaded_dlls", self._collect_loaded_dlls),
+            ])
 
         with ThreadPoolExecutor(max_workers=6) as executor:
             futures = {executor.submit(fn): name for name, fn in collectors}
             for future in as_completed(futures):
-                name = futures[future]
                 try:
                     future.result()
-                    logger.info(f"[RECON] {name} collected: {len([e for e in self.evidence if e.category == name])} items")
                 except Exception as e:
-                    logger.error(f"[RECON] {name} failed: {e}")
+                    logger.debug(f"[RECON] Collector error: {e}")
 
-        logger.info(f"[RECON] Total evidence collected: {len(self.evidence)}")
         return self.evidence
 
     def _add_evidence(self, category: str, source: str, data: Dict, raw: str = ""):
@@ -440,41 +485,32 @@ class ReconAgent:
             self.evidence.append(ev)
 
     def _collect_processes(self):
-        for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'cpu_percent', 
-                                          'memory_percent', 'connections', 'ppid', 'create_time']):
+        for proc in psutil.process_iter(['pid', 'name', 'exe', 'cmdline', 'ppid', 'cpu_percent', 'memory_percent']):
             try:
                 info = proc.info
                 pid = info['pid']
                 if pid < 10:
                     continue
 
-                # Get parent info
                 parent_name = ""
                 try:
                     parent = proc.parent()
                     if parent:
                         parent_name = parent.name()
-                except:
+                except Exception:
                     pass
 
-                # Check if process has suspicious characteristics
                 cmdline = " ".join(info['cmdline'] or [])
-
                 self._add_evidence("processes", "psutil", {
                     "pid": pid,
                     "name": info['name'],
                     "exe": info['exe'] or "",
-                    "cmdline": cmdline[:500],
+                    "cmdline": cmdline[:400],
                     "ppid": info['ppid'],
                     "parent_name": parent_name,
-                    "cpu_percent": info['cpu_percent'],
-                    "memory_percent": info['memory_percent'],
-                    "create_time": info['create_time'],
-                    "num_threads": proc.num_threads(),
-                    "num_connections": len(info['connections'] or []),
-                    "username": proc.username() if hasattr(proc, 'username') else "",
+                    "cpu_percent": info.get('cpu_percent', 0.0),
+                    "memory_percent": info.get('memory_percent', 0.0)
                 }, raw=cmdline)
-
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
@@ -482,11 +518,12 @@ class ReconAgent:
         try:
             for conn in psutil.net_connections(kind='inet'):
                 if conn.status == 'ESTABLISHED' and conn.raddr:
+                    proc_name = "unknown"
                     try:
                         proc = psutil.Process(conn.pid)
                         proc_name = proc.name()
-                    except:
-                        proc_name = "unknown"
+                    except Exception:
+                        pass
 
                     self._add_evidence("network", "psutil", {
                         "pid": conn.pid,
@@ -494,13 +531,11 @@ class ReconAgent:
                         "local_addr": f"{conn.laddr.ip}:{conn.laddr.port}" if conn.laddr else "",
                         "remote_addr": f"{conn.raddr.ip}:{conn.raddr.port}",
                         "status": conn.status,
-                        "family": str(conn.family),
                     })
-        except Exception as e:
-            logger.warning(f"[RECON] Network collection error: {e}")
+        except Exception:
+            pass
 
     def _collect_memory_regions(self):
-        """Collect suspicious memory regions per process"""
         if sys.platform != 'win32':
             return
 
@@ -511,14 +546,11 @@ class ReconAgent:
                 if pid < 100:
                     continue
 
-                # Use Windows API to check memory
                 try:
                     handle = win32api.OpenProcess(
                         win32con.PROCESS_QUERY_INFORMATION | win32con.PROCESS_VM_READ,
                         False, pid
                     )
-
-                    # Quick check: count RWX regions
                     rwx_count = 0
                     address = 0
                     while True:
@@ -529,11 +561,11 @@ class ReconAgent:
                         if result == 0:
                             break
 
-                        if (mbi.State == win32con.MEM_COMMIT and 
-                            mbi.Protect == win32con.PAGE_EXECUTE_READWRITE):
+                        if (mbi.State == win32con.MEM_COMMIT and
+                                mbi.Protect == win32con.PAGE_EXECUTE_READWRITE):
                             rwx_count += 1
 
-                        address = mbi.BaseAddress + mbi.RegionSize
+                        address = (mbi.BaseAddress or 0) + mbi.RegionSize
 
                     win32api.CloseHandle(handle)
 
@@ -542,26 +574,22 @@ class ReconAgent:
                             "pid": pid,
                             "process_name": name,
                             "rwx_region_count": rwx_count,
-                            "note": "Process has executable+writable memory regions"
+                            "note": "Process contains unbacked RWX memory allocations"
                         })
-
                 except Exception:
                     pass
-
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
 
     def _collect_registry(self):
         if sys.platform != 'win32':
             return
-
-        keys_to_check = [
-            (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run"),
-            (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run"),
-            (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\RunOnce"),
+        keys = [
+            (winreg.HKEY_CURRENT_USER, r"Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\\Microsoft\\Windows\\CurrentVersion\\Run"),
+            (winreg.HKEY_CURRENT_USER, r"Software\\Microsoft\\Windows\\CurrentVersion\\RunOnce"),
         ]
-
-        for hkey, path in keys_to_check:
+        for hkey, path in keys:
             try:
                 with winreg.OpenKey(hkey, path, 0, winreg.KEY_READ) as key:
                     i = 0
@@ -581,14 +609,12 @@ class ReconAgent:
                 pass
 
     def _collect_browser_extensions(self):
-        """Collect browser extension manifests"""
         ext_paths = []
         if sys.platform == 'win32':
             ext_paths = [
                 Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "User Data" / "Default" / "Extensions",
                 Path.home() / "AppData" / "Local" / "Microsoft" / "Edge" / "User Data" / "Default" / "Extensions",
             ]
-
         for ext_dir in ext_paths:
             if not ext_dir.exists():
                 continue
@@ -606,11 +632,9 @@ class ReconAgent:
                                 "extension_id": ext_id.name,
                                 "name": data.get("name", "unknown"),
                                 "permissions": data.get("permissions", []),
-                                "host_permissions": data.get("host_permissions", []),
-                                "content_scripts_count": len(data.get("content_scripts", [])),
-                                "background_script": bool(data.get("background")),
+                                "host_permissions": data.get("host_permissions", [])
                             })
-                        except:
+                        except Exception:
                             pass
 
     def _collect_startup_items(self):
@@ -625,309 +649,271 @@ class ReconAgent:
                         self._add_evidence("startup_items", "filesystem", {
                             "path": str(item),
                             "name": item.name,
-                            "type": "file" if item.is_file() else "dir",
+                            "type": "file" if item.is_file() else "dir"
                         })
 
     def _collect_services(self):
         if sys.platform == 'win32':
             try:
-                result = subprocess.run(['sc', 'query', 'type=', 'service', 'state=', 'all'], 
-                                       capture_output=True, text=True, timeout=30)
-                for line in result.stdout.split('\n'):
+                result = subprocess.run(['sc', 'query', 'type=', 'service', 'state=', 'all'],
+                                        capture_output=True, text=True, timeout=20)
+                for line in result.stdout.splitlines():
                     if 'SERVICE_NAME:' in line:
                         name = line.split(':')[1].strip()
-                        self._add_evidence("services", "sc", {
-                            "service_name": name,
-                        })
-            except:
+                        self._add_evidence("services", "sc", {"service_name": name})
+            except Exception:
                 pass
 
     def _collect_loaded_dlls(self):
-        """Collect DLLs loaded into browser processes"""
         browser_names = ['chrome.exe', 'firefox.exe', 'msedge.exe', 'brave.exe']
         for proc in psutil.process_iter(['pid', 'name']):
             try:
                 if proc.info['name'].lower() not in browser_names:
                     continue
-
                 for dll in proc.memory_maps():
                     dll_path = dll.path.lower()
-                    # Only collect non-system DLLs
-                    if any(x in dll_path for x in ['\windows\', '\program files\']):
+                    if any(x in dll_path for x in ['\\windows\\', '\\program files\\']):
                         continue
                     if dll_path.endswith('.dll') or dll_path.endswith('.exe'):
                         self._add_evidence("loaded_dlls", "psutil", {
                             "pid": proc.info['pid'],
                             "process_name": proc.info['name'],
                             "dll_path": dll.path,
-                            "rss": dll.rss,
                         })
-            except:
+            except Exception:
                 pass
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# ANALYZER AGENT -- DEEP LOCAL HEURISTICS
+# ═══════════════════════════════════════════════════════════════════════════════
+
 class AnalyzerAgent:
-    """
-    Phase 2: AI-Powered Analysis
-    Sends evidence to LLM for intelligent threat analysis
-    Inspired by: LAMPS Classifier Agent + SentinelOne adversarial consensus
-    """
+    """Local behavioral threat correlation without cloud dependencies"""
 
-    # System prompt for the AI security analyst
-    SYSTEM_PROMPT = """You are Kjagu-AI, an elite cybersecurity threat analyst. Your job is to analyze system evidence and identify spyware, information stealers, keyloggers, and other malicious software.
-
-You operate with surgical precision. For each piece of evidence, you must:
-1. Evaluate if it exhibits malicious behavior patterns
-2. Assign a confidence score (0.0-1.0)
-3. Cite specific MITRE ATT&CK techniques if applicable
-4. Recommend an action: INVESTIGATE, QUARANTINE, TERMINATE, or IGNORE
-
-CONTEXT about the user: {user_context}
-
-RULES:
-- Be paranoid but accurate. False positives waste time.
-- Look for: injection patterns, persistence mechanisms, data exfiltration, credential theft, keylogging, screen capture, browser hijacking
-- Consider the user's context. A game overlay DLL in a gaming system is likely benign. The same DLL on a trading workstation is suspicious.
-- Output STRICT JSON only. No markdown, no explanations outside JSON.
-
-OUTPUT FORMAT:
-{
-  "findings": [
-    {
-      "evidence_ids": ["id1", "id2"],
-      "threat_type": "KEYLOGGER|INFOSTEALER|ROOTKIT|ADWARE|MINER|RANSOMWARE|BENIGN",
-      "confidence": 0.95,
-      "severity": "CRITICAL|HIGH|MEDIUM|LOW|INFO",
-      "mitre_technique": "T1055",
-      "description": "Detailed explanation",
-      "recommended_action": "TERMINATE|QUARANTINE|INVESTIGATE|IGNORE",
-      "rationale": "Why this decision was made"
-    }
-  ],
-  "summary": "Brief overall assessment"
-}"""
-
-    def __init__(self, llm: LLMClient, config: KjaguConfig):
-        self.llm = llm
+    def __init__(self, config: KjaguConfig):
         self.config = config
 
     def analyze_evidence_batch(self, evidence_batch: List[Evidence]) -> List[Hypothesis]:
-        """Analyze a batch of evidence using the LLM"""
         if not evidence_batch:
             return []
+        hyps: List[Hypothesis] = []
+        system_proc_names = {'svchost.exe', 'csrss.exe', 'lsass.exe', 'winlogon.exe', 'services.exe', 'smss.exe'}
 
-        # Format evidence for the LLM
-        evidence_json = []
-        for ev in evidence_batch:
-            evidence_json.append({
-                "id": ev.evidence_id,
-                "category": ev.category,
-                "data": ev.data
-            })
+        for i, ev in enumerate(evidence_batch):
+            data = ev.data
+            cat = ev.category
 
-        user_prompt = f"""Analyze the following system evidence and identify threats.
+            if cat == "processes":
+                name = str(data.get("name", "")).lower()
+                exe = str(data.get("exe", "")).lower()
+                cmdline = str(data.get("cmdline", "")).lower()
+                pid = data.get("pid", 0)
 
-EVIDENCE BATCH ({len(evidence_batch)} items):
-```json
-{json.dumps(evidence_json, indent=2)[:8000]}
-```
+                # 1. Masquerading System Process
+                if name in system_proc_names:
+                    if exe and not (r"\windows\system32" in exe or r"\windows\syswow64" in exe):
+                        hyps.append(Hypothesis(
+                            hypothesis_id=f"hyp_masq_{pid}_{i}",
+                            description=f"Process Masquerading: Core binary '{name}' running outside System32: {exe}",
+                            confidence=0.98,
+                            evidence_refs=[ev.evidence_id],
+                            mitre_technique="T1036.005",
+                            recommended_action="TERMINATE",
+                            rationale="Critical system binary executing from an untrusted user path is a confirmed trojan indicator."
+                        ))
 
-Provide your analysis in the required JSON format."""
+                # 2. Suspicious Staging Directories
+                suspicious_dirs = [r"\appdata\local\temp", r"\windows\temp", r"\users\public"]
+                if any(s in exe for s in suspicious_dirs):
+                    if not any(good in exe for good in ["code.exe", "node.exe", "installer", "update"]):
+                        hyps.append(Hypothesis(
+                            hypothesis_id=f"hyp_staged_{pid}_{i}",
+                            description=f"Suspicious Staging Path: Executable running from temp or public directory: {exe}",
+                            confidence=0.82,
+                            evidence_refs=[ev.evidence_id],
+                            mitre_technique="T1204.002",
+                            recommended_action="QUARANTINE",
+                            rationale="Infostealers and dropper stubs frequently run directly from user temporary directories."
+                        ))
 
-        system = self.SYSTEM_PROMPT.format(user_context=self.config.user_context or "General user")
+                # 3. Hostile Commandline Signatures
+                hostile_patterns = [
+                    (r"-w\s+hidden", "Hidden PowerShell execution", "T1059.001"),
+                    (r"-enc\s+[a-za-z0-9+/=]{20,}", "Base64 obfuscated command execution", "T1059.001"),
+                    (r"vssadmin\s+delete\s+shadows", "Shadow volume deletion (Ransomware)", "T1490"),
+                    (r"certutil.*-urlcache", "Certutil in-memory binary staging", "T1105"),
+                    (r"iex\s*\(new-object", "In-memory web cradle download", "T1059.001"),
+                ]
+                for pattern, desc, mitre in hostile_patterns:
+                    if re.search(pattern, cmdline, re.IGNORECASE):
+                        hyps.append(Hypothesis(
+                            hypothesis_id=f"hyp_cmd_{pid}_{i}",
+                            description=f"Hostile Command Signature: {desc} in process {name}",
+                            confidence=0.92,
+                            evidence_refs=[ev.evidence_id],
+                            mitre_technique=mitre,
+                            recommended_action="TERMINATE",
+                            rationale=f"Command matches offensive pattern: {pattern}"
+                        ))
+                        break
 
-        response = self.llm.chat(system, user_prompt)
-        content = response.get("content", "")
+            elif cat == "memory_regions":
+                rwx = data.get("rwx_region_count", 0)
+                name = data.get("process_name", "unknown")
+                pid = data.get("pid", 0)
+                if rwx > 0:
+                    conf = min(0.70 + (rwx * 0.08), 0.96)
+                    action = "TERMINATE" if rwx >= 3 else "QUARANTINE"
+                    hyps.append(Hypothesis(
+                        hypothesis_id=f"hyp_rwx_{pid}_{i}",
+                        description=f"Memory Injection: {name} contains {rwx} PAGE_EXECUTE_READWRITE regions",
+                        confidence=conf,
+                        evidence_refs=[ev.evidence_id],
+                        mitre_technique="T1055",
+                        recommended_action=action,
+                        rationale="RWX memory allocations indicate shellcode staging or unbacked memory beacons."
+                    ))
 
-        # Extract JSON from response
-        hypotheses = self._parse_analysis_response(content)
+            elif cat == "registry_persistence":
+                val = str(data.get("value", "")).lower()
+                entry = data.get("entry_name", "")
+                if any(x in val for x in [r"\appdata\local\temp", r"\users\public", ".vbs", ".ps1", ".bat"]):
+                    hyps.append(Hypothesis(
+                        hypothesis_id=f"hyp_reg_{i}",
+                        description=f"Suspicious Autostart: '{entry}' points to script or temp path: {val[:120]}",
+                        confidence=0.86,
+                        evidence_refs=[ev.evidence_id],
+                        mitre_technique="T1547.001",
+                        recommended_action="INVESTIGATE",
+                        rationale="Autostart persistence in user temporary directories is heavily leveraged by infostealers."
+                    ))
 
-        logger.info(f"[ANALYZER] AI generated {len(hypotheses)} hypotheses for batch of {len(evidence_batch)}")
-        return hypotheses
+            elif cat == "loaded_dlls":
+                dll = str(data.get("dll_path", "")).lower()
+                pname = data.get("process_name", "")
+                pid = data.get("pid", 0)
+                if any(s in dll for s in [r"\appdata\local\temp", r"\users\public"]):
+                    hyps.append(Hypothesis(
+                        hypothesis_id=f"hyp_dll_{pid}_{i}",
+                        description=f"Untrusted DLL Injection: {pname} loaded DLL from staging path: {dll}",
+                        confidence=0.84,
+                        evidence_refs=[ev.evidence_id],
+                        mitre_technique="T1055.001",
+                        recommended_action="QUARANTINE",
+                        rationale="Non-system DLLs injected into browsers indicate credential hooking or API interception."
+                    ))
 
-    def _parse_analysis_response(self, content: str) -> List[Hypothesis]:
-        """Parse LLM JSON response into Hypothesis objects"""
-        hypotheses = []
+            elif cat == "browser_extensions":
+                perms = set(data.get("permissions", []))
+                name = data.get("name", "Unknown Extension")
+                high_risk = {'cookies', 'webRequest', 'webRequestBlocking'}
+                if len(perms.intersection(high_risk)) >= 2:
+                    hyps.append(Hypothesis(
+                        hypothesis_id=f"hyp_ext_{i}",
+                        description=f"High-Risk Extension '{name}': Possesses cookie theft and web traffic interception rights",
+                        confidence=0.76,
+                        evidence_refs=[ev.evidence_id],
+                        mitre_technique="T1176",
+                        recommended_action="INVESTIGATE",
+                        rationale="Extension possesses full permissions to harvest browser session credentials."
+                    ))
 
-        try:
-            # Try to find JSON in the response
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
-            if json_match:
-                data = json.loads(json_match.group())
-            else:
-                data = json.loads(content)
+        return hyps
 
-            for i, finding in enumerate(data.get("findings", [])):
-                hyp = Hypothesis(
-                    hypothesis_id=f"hyp_{int(time.time())}_{i}",
-                    description=finding.get("description", ""),
-                    confidence=finding.get("confidence", 0.5),
-                    evidence_refs=finding.get("evidence_ids", []),
-                    mitre_technique=finding.get("mitre_technique", ""),
-                    recommended_action=finding.get("recommended_action", "INVESTIGATE"),
-                    rationale=finding.get("rationale", "")
-                )
-                hypotheses.append(hyp)
 
-        except json.JSONDecodeError as e:
-            logger.error(f"[ANALYZER] Failed to parse AI response: {e}")
-            logger.debug(f"[ANALYZER] Raw response: {content[:500]}")
-
-        return hypotheses
-
-    def deep_dive_process(self, pid: int, process_name: str, 
-                          evidence_pool: List[Evidence]) -> Optional[Hypothesis]:
-        """Request AI to perform deep analysis on a specific process"""
-        # Gather all evidence related to this process
-        related = [e for e in evidence_pool 
-                   if e.data.get("pid") == pid or e.data.get("process_name") == process_name]
-
-        if len(related) < 2:
-            return None
-
-        user_prompt = f"""Perform DEEP ANALYSIS on process {process_name} (PID {pid}).
-
-This process has been flagged by initial scanning. Analyze all related evidence:
-
-```json
-{json.dumps([{"id": e.evidence_id, "cat": e.category, "data": e.data} for e in related], indent=2)[:6000]}
-```
-
-Is this process malicious? Provide detailed reasoning and confidence.
-Output strict JSON with: threat_type, confidence (0-1), severity, mitre_technique, description, recommended_action, rationale."""
-
-        system = self.SYSTEM_PROMPT.format(user_context=self.config.user_context or "General user")
-        response = self.llm.chat(system, user_prompt)
-
-        hypotheses = self._parse_analysis_response(response.get("content", ""))
-        return hypotheses[0] if hypotheses else None
-
+# ═══════════════════════════════════════════════════════════════════════════════
+# VERIFIER AGENT
+# ═══════════════════════════════════════════════════════════════════════════════
 
 class VerifierAgent:
-    """
-    Phase 3: Cross-Validation & Consensus
-    Reduces false positives by verifying AI findings against heuristics and known-good lists
-    Inspired by: SentinelOne adversarial consensus engine
-    """
+    """Filters benign processes and validates heuristic consensus"""
 
-    # Known-good patterns that frequently trigger false positives
-    KNOWN_GOOD_SIGNATURES = [
-        (r"nvidia.*overlay", "gaming", 0.9),
-        (r"discord.*overlay", "gaming", 0.9),
-        (r"steam.*overlay", "gaming", 0.9),
-        (r"epicgames.*overlay", "gaming", 0.9),
-        (r"msedge.*\browser_broker", "browser", 0.85),
-        (r"chrome.*\chrome_.*\chrome.exe", "browser", 0.9),
-        (r"vscode", "development", 0.9),
-        (r"python.*\python.exe", "development", 0.8),
-        (r"node.*\node.exe", "development", 0.8),
-        (r"docker", "development", 0.85),
-        (r"wsl", "development", 0.85),
-        (r"spotify", "media", 0.9),
-        (r"obs.*\obs", "streaming", 0.85),
-        (r"1password", "security", 0.9),
-        (r"bitwarden", "security", 0.9),
-        (r"lastpass", "security", 0.9),
+    KNOWN_GOOD = [
+        r"nvidia.*overlay", r"discord.*overlay", r"steam.*overlay", r"epicgames",
+        r"vscode", r"cursor", r"python.*python\.exe", r"node.*node\.exe", r"docker",
+        r"wsl", r"spotify", r"obs.*obs", r"1password", r"bitwarden", r"chrome.*chrome\.exe"
     ]
 
     def __init__(self, config: KjaguConfig):
         self.config = config
 
-    def verify_hypothesis(self, hypothesis: Hypothesis, 
-                         evidence_map: Dict[str, Evidence]) -> Tuple[bool, float, str]:
-        """
-        Verify an AI hypothesis. Returns: (is_valid, adjusted_confidence, reason)
-        """
-        # Gather evidence for this hypothesis
-        related_evidence = []
-        for ev_id in hypothesis.evidence_refs:
-            if ev_id in evidence_map:
-                related_evidence.append(evidence_map[ev_id])
+    def verify_hypothesis(self, hypothesis: Hypothesis, evidence_map: Dict[str, Evidence]) -> Tuple[bool, float, str]:
+        related = [evidence_map[eid] for eid in hypothesis.evidence_refs if eid in evidence_map]
 
-        # Check 1: Known-good whitelist
-        for ev in related_evidence:
-            path = ev.data.get("exe", "") + ev.data.get("dll_path", "") + ev.data.get("path", "")
-            name = ev.data.get("name", "") + ev.data.get("process_name", "")
-
-            for pattern, category, confidence_boost in self.KNOWN_GOOD_SIGNATURES:
+        for ev in related:
+            path = str(ev.data.get("exe", "")) + str(ev.data.get("dll_path", "")) + str(ev.data.get("path", ""))
+            name = str(ev.data.get("name", "")) + str(ev.data.get("process_name", ""))
+            for pattern in self.KNOWN_GOOD:
                 if re.search(pattern, path, re.IGNORECASE) or re.search(pattern, name, re.IGNORECASE):
-                    # Check if user context matches
-                    if self.config.user_context and category in self.config.user_context.lower():
-                        return False, 0.1, f"Known-good {category} software: {pattern}"
-                    # Even without context, reduce confidence
-                    hypothesis.confidence *= 0.3
+                    hypothesis.confidence *= 0.35
+                    if hypothesis.confidence < 0.40:
+                        return False, hypothesis.confidence, f"Whitelisted software matching pattern: {pattern}"
 
-        # Check 2: Heuristic validation
-        heuristic_score = self._compute_heuristic_score(related_evidence)
+        score = self._compute_heuristic_score(related)
+        consensus = max(hypothesis.confidence, score)
 
-        # Check 3: Confidence floor
-        if hypothesis.confidence < 0.3:
-            return False, hypothesis.confidence, "AI confidence below threshold"
-
-        # Check 4: Consensus — AI and heuristics must somewhat agree
-        consensus = (hypothesis.confidence + heuristic_score) / 2
         if consensus < self.config.consensus_threshold:
-            return False, consensus, f"Consensus score {consensus:.2f} below threshold {self.config.consensus_threshold}"
+            return False, consensus, f"Confidence {consensus:.2f} below threshold {self.config.consensus_threshold}"
 
-        return True, consensus, "Verified by heuristic consensus"
+        return True, consensus, "Verified by local heuristic rules"
 
     def _compute_heuristic_score(self, evidence_list: List[Evidence]) -> float:
-        """Compute traditional heuristic threat score from evidence"""
         score = 0.0
-        weights = {
-            "rwx_region_count": 0.3,
-            "suspicious_permissions": 0.25,
-            "hidden_file": 0.2,
-            "orphan_process": 0.25,
-            "unknown_publisher": 0.15,
-            "network_to_rare_port": 0.2,
-        }
+        system_proc_names = {'svchost.exe', 'csrss.exe', 'lsass.exe', 'winlogon.exe', 'services.exe', 'smss.exe'}
 
         for ev in evidence_list:
             data = ev.data
+            cat = ev.category
 
             if data.get("rwx_region_count", 0) > 0:
-                score += weights["rwx_region_count"] * min(data["rwx_region_count"] / 3, 1.0)
+                score += 0.45 * min(data["rwx_region_count"] / 3, 1.0)
 
-            if ev.category == "browser_extensions":
-                perms = data.get("permissions", [])
-                suspicious = ['cookies', 'webRequest', 'webRequestBlocking', 'tabs', 
-                             'history', 'downloads', 'clipboardRead', 'nativeMessaging']
-                count = sum(1 for p in perms if p in suspicious)
-                if count >= 3:
-                    score += weights["suspicious_permissions"]
+            if cat == "processes":
+                name = str(data.get("name", "")).lower()
+                exe = str(data.get("exe", "")).lower()
+                cmd = str(data.get("cmdline", "")).lower()
+                if name in system_proc_names and exe and not (r"\\windows\\system32" in exe or r"\\windows\\syswow64" in exe):
+                    score += 0.85
+                if any(s in exe for s in [r"\\appdata\\local\\temp", r"\\windows\\temp", r"\\users\\public"]):
+                    score += 0.45
+                if any(h in cmd for h in ["-w hidden", "-enc", "vssadmin", "downloadstring", "certutil"]):
+                    score += 0.55
 
-            if data.get("orphan_process"):
-                score += weights["orphan_process"]
+            if cat == "loaded_dlls":
+                dll = str(data.get("dll_path", "")).lower()
+                if any(s in dll for s in [r"\\temp", r"\\users\\public"]):
+                    score += 0.4
+
+            if cat == "registry_persistence":
+                val = str(data.get("value", "")).lower()
+                if any(s in val for s in [r"\\temp", r"\\users\\public", ".vbs", ".ps1"]):
+                    score += 0.4
 
         return min(score, 1.0)
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# VERDICT AGENT
+# ═══════════════════════════════════════════════════════════════════════════════
+
 class VerdictAgent:
-    """
-    Phase 4: Final Verdict & Action Recommendation
-    Aggregates all verified hypotheses into final threat reports
-    Inspired by: LAMPS Verdict Agent
-    """
+    """Synthesizes verified hypotheses into actionable incident reports"""
 
     def __init__(self, config: KjaguConfig):
         self.config = config
 
-    def render_verdicts(self, hypotheses: List[Hypothesis], 
-                       evidence_pool: List[Evidence],
-                       evidence_map: Dict[str, Evidence]) -> List[ThreatReport]:
-        """Convert verified hypotheses into final threat reports"""
-        reports = []
+    def render_verdicts(self, hypotheses: List[Hypothesis],
+                        evidence_pool: List[Evidence],
+                        evidence_map: Dict[str, Evidence]) -> List[ThreatReport]:
+        reports: List[ThreatReport] = []
         verifier = VerifierAgent(self.config)
 
-        # Group hypotheses by target process
         by_target: Dict[Tuple[str, int], List[Hypothesis]] = {}
         for hyp in hypotheses:
-            # Find target from evidence refs
             target_name = "unknown"
             target_pid = 0
             target_path = ""
-
             for ev_id in hyp.evidence_refs:
                 if ev_id in evidence_map:
                     ev = evidence_map[ev_id]
@@ -935,101 +921,76 @@ class VerdictAgent:
                     target_pid = ev.data.get("pid", 0)
                     target_path = ev.data.get("exe", ev.data.get("path", ""))
                     break
-
             key = (target_name, target_pid)
             by_target.setdefault(key, []).append(hyp)
 
-        # Generate report per target
         for (name, pid), hyps in by_target.items():
-            # Verify each hypothesis
             valid_hyps = []
             for hyp in hyps:
-                is_valid, consensus, reason = verifier.verify_hypothesis(hyp, evidence_map)
+                is_valid, consensus, _ = verifier.verify_hypothesis(hyp, evidence_map)
                 if is_valid:
-                    hyp.confidence = consensus  # Update with consensus score
+                    hyp.confidence = consensus
                     valid_hyps.append(hyp)
 
             if not valid_hyps:
                 continue
 
-            # Aggregate
             max_conf = max(h.confidence for h in valid_hyps)
-            avg_conf = sum(h.confidence for h in valid_hyps) / len(valid_hyps)
+            severity = "CRITICAL" if max_conf >= 0.90 else "HIGH" if max_conf >= 0.75 else "MEDIUM"
 
-            # Determine severity
-            if max_conf >= 0.9:
-                severity = "CRITICAL"
-            elif max_conf >= 0.75:
-                severity = "HIGH"
-            elif max_conf >= 0.5:
-                severity = "MEDIUM"
-            else:
-                severity = "LOW"
-
-            # Collect all evidence
             all_ev_ids = set()
             for h in valid_hyps:
                 all_ev_ids.update(h.evidence_refs)
             all_evidence = [evidence_map[eid] for eid in all_ev_ids if eid in evidence_map]
 
-            # Determine action
             actions = [h.recommended_action for h in valid_hyps]
-            if "TERMINATE" in actions:
-                action = "TERMINATE"
-            elif "QUARANTINE" in actions:
-                action = "QUARANTINE"
-            else:
-                action = "INVESTIGATE"
-
-            # Build description
+            action = "TERMINATE" if "TERMINATE" in actions else "QUARANTINE" if "QUARANTINE" in actions else "INVESTIGATE"
             descriptions = [f"- {h.description} (conf: {h.confidence:.0%})" for h in valid_hyps]
 
             report = ThreatReport(
                 threat_id=f"THREAT_{int(time.time())}_{pid}",
-                threat_type=valid_hyps[0].threat_type if hasattr(valid_hyps[0], 'threat_type') else "UNKNOWN",
+                threat_type="SPYWARE_INDICATOR",
                 severity=severity,
                 target_name=name,
                 target_pid=pid,
                 target_path=target_path,
                 description="\n".join(descriptions),
-                heuristic_score=avg_conf,  # Simplified
-                ai_score=max_conf,
-                consensus_score=avg_conf,
+                consensus_score=max_conf,
                 evidence=all_evidence,
                 hypotheses=valid_hyps,
                 recommended_action=action
             )
             reports.append(report)
 
-        # Sort by consensus score descending
         reports.sort(key=lambda r: r.consensus_score, reverse=True)
         return reports
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# ACTOR AGENT
+# ═══════════════════════════════════════════════════════════════════════════════
+
 class ActorAgent:
-    """
-    Phase 5: Action Execution
-    Executes approved actions: terminate, quarantine, encrypt cookies
-    """
+    """Executes containment: process termination, binary quarantine, cookie protection"""
 
     def __init__(self, config: KjaguConfig):
         self.config = config
-        self.executed_actions: List[Dict] = []
+        self.quarantine_vault = KjaguQuarantineVault()
 
-    def execute(self, reports: List[ThreatReport], vault) -> Dict:
-        """Execute actions on verified threats"""
+    def execute(self, reports: List[ThreatReport], vault: Optional[KjaguCryptoVault]) -> Dict:
         results = {
             "terminated": [],
             "quarantined": [],
             "investigated": [],
-            "failed": [],
-            "cookies_encrypted": []
+            "failed": []
         }
 
         for report in reports:
             if report.recommended_action == "TERMINATE":
                 if self.config.enable_aggressive_mode:
                     success = self._terminate_process(report.target_pid, report.target_name)
+                    if report.target_path and os.path.isfile(report.target_path):
+                        self.quarantine_vault.quarantine_file(report.target_path, report.target_name)
                     if success:
                         report.action_taken = "TERMINATED"
                         results["terminated"].append(report.target_name)
@@ -1038,306 +999,132 @@ class ActorAgent:
                 else:
                     report.action_taken = "PENDING_APPROVAL"
                     results["investigated"].append(report.target_name)
-                    logger.info(f"[ACTOR] TERMINATE pending approval for {report.target_name} (aggressive_mode=False)")
 
             elif report.recommended_action == "QUARANTINE":
-                success = self._quarantine_process(report.target_pid, report.target_name)
+                success = False
+                if report.target_path and os.path.isfile(report.target_path):
+                    qid = self.quarantine_vault.quarantine_file(report.target_path, report.target_name)
+                    if qid:
+                        success = True
+                if report.target_pid > 0:
+                    psucc = self._quarantine_process(report.target_pid, report.target_name)
+                    success = success or psucc
+
                 if success:
                     report.action_taken = "QUARANTINED"
                     results["quarantined"].append(report.target_name)
                 else:
                     results["failed"].append(report.target_name)
 
-        # Encrypt cookies
-        cookie_results = vault.encrypt_all_cookies() if vault else {}
-        results["cookies_encrypted"] = list(cookie_results.keys())
-
         return results
 
     def _terminate_process(self, pid: int, name: str) -> bool:
-        """Force terminate a process"""
         if pid <= 0:
             return False
         try:
             proc = psutil.Process(pid)
             proc.terminate()
             try:
-                proc.wait(timeout=3)
+                proc.wait(timeout=2)
             except psutil.TimeoutExpired:
                 proc.kill()
-                proc.wait(timeout=2)
-            logger.info(f"[ACTOR] Terminated {name} (PID {pid})")
             return True
-        except Exception as e:
-            logger.error(f"[ACTOR] Failed to terminate {name}: {e}")
+        except Exception:
             return False
 
     def _quarantine_process(self, pid: int, name: str) -> bool:
-        """Suspend process instead of killing (safer)"""
         try:
             proc = psutil.Process(pid)
             proc.suspend()
-            logger.info(f"[ACTOR] Suspended {name} (PID {pid}) — quarantine mode")
             return True
-        except Exception as e:
-            logger.error(f"[ACTOR] Failed to suspend {name}: {e}")
+        except Exception:
             return False
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# COOKIE VAULT (unchanged core, enhanced)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-class KjaguCryptoVault:
-    """Maximum-level browser cookie encryption with hardware binding"""
-
-    def __init__(self, master_password: Optional[str] = None):
-        self.vault_dir = Path.home() / ".kjagu_vault"
-        self.vault_dir.mkdir(exist_ok=True)
-        self.key_file = self.vault_dir / "vault.key"
-        self.meta_file = self.vault_dir / "vault.meta"
-        self.hw_fingerprint = self._get_hw_fingerprint()
-        self.master_password = master_password or self._derive_password()
-        self._key = self._load_or_generate_key()
-
-    def _get_hw_fingerprint(self) -> bytes:
-        components = []
-        if sys.platform == 'win32' and wmi:
-            try:
-                c = wmi.WMI()
-                for processor in c.Win32_Processor():
-                    components.append(processor.ProcessorId.strip())
-                for bios in c.Win32_BIOS():
-                    components.append(bios.SerialNumber.strip())
-            except:
-                pass
-        components.append(str(Path.home().absolute()))
-        components.append(os.getlogin() if hasattr(os, 'getlogin') else "user")
-        return hashlib.sha256("|".join(components).encode()).digest()[:16]
-
-    def _derive_password(self) -> str:
-        if self.key_file.exists():
-            return ""
-        return base64.urlsafe_b64encode(os.urandom(32)).decode()
-
-    def _load_or_generate_key(self) -> bytes:
-        if self.key_file.exists():
-            with open(self.key_file, 'rb') as f:
-                encrypted_key = f.read()
-            salt = self.hw_fingerprint
-            kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, 
-                           iterations=600000, backend=default_backend())
-            key = base64.urlsafe_b64encode(kdf.derive(self.master_password.encode()))
-            fernet = Fernet(key)
-            return fernet.decrypt(encrypted_key)
-
-        key = AESGCM.generate_key(bit_length=256)
-        salt = self.hw_fingerprint
-        kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt,
-                        iterations=600000, backend=default_backend())
-        key_wrap = base64.urlsafe_b64encode(kdf.derive(self.master_password.encode()))
-        fernet = Fernet(key_wrap)
-        with open(self.key_file, 'wb') as f:
-            f.write(fernet.encrypt(key))
-        meta = {"created": datetime.now().isoformat(), "algorithm": "AES-256-GCM",
-                "kdf": "PBKDF2-SHA256-600k", "hardware_bound": True, "version": "3.0"}
-        with open(self.meta_file, 'w') as f:
-            json.dump(meta, f, indent=2)
-        return key
-
-    def encrypt_cookies(self, browser_name: str, cookie_path: Path) -> Optional[Path]:
-        if not cookie_path.exists():
-            return None
-        try:
-            with open(cookie_path, 'rb') as f:
-                plaintext = f.read()
-        except PermissionError:
-            logger.warning(f"[VAULT] Cannot read {cookie_path} — browser running?")
-            return None
-
-        nonce = os.urandom(12)
-        aesgcm = AESGCM(self._key)
-        associated_data = browser_name.encode() + self.hw_fingerprint
-        ciphertext = aesgcm.encrypt(nonce, plaintext, associated_data)
-        h = hmac.new(self._key, nonce + ciphertext + associated_data, hashlib.sha256)
-        vault_data = nonce + ciphertext + h.digest()
-
-        vault_path = self.vault_dir / f"{browser_name}_cookies.kvault"
-        with open(vault_path, 'wb') as f:
-            f.write(vault_data)
-        self._secure_delete(cookie_path)
-        logger.info(f"[VAULT] {browser_name} cookies encrypted → {vault_path}")
-        return vault_path
-
-    def encrypt_all_cookies(self) -> Dict[str, Path]:
-        browsers = {
-            "chrome": Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "User Data" / "Default" / "Cookies",
-            "edge": Path.home() / "AppData" / "Local" / "Microsoft" / "Edge" / "User Data" / "Default" / "Cookies",
-            "brave": Path.home() / "AppData" / "Local" / "BraveSoftware" / "Brave-Browser" / "User Data" / "Default" / "Cookies",
-        }
-        results = {}
-        for name, path in browsers.items():
-            result = self.encrypt_cookies(name, path)
-            if result:
-                results[name] = result
-        # Firefox
-        ff_path = Path.home() / "AppData" / "Roaming" / "Mozilla" / "Firefox" / "Profiles"
-        if ff_path.exists():
-            for profile in ff_path.glob("*.default*"):
-                cookie_db = profile / "cookies.sqlite"
-                if cookie_db.exists():
-                    result = self.encrypt_cookies(f"firefox_{profile.name}", cookie_db)
-                    if result:
-                        results[f"firefox_{profile.name}"] = result
-        return results
-
-    def _secure_delete(self, path: Path, passes: int = 7):
-        if not path.exists():
-            return
-        size = path.stat().st_size
-        with open(path, 'r+b') as f:
-            for _ in range(passes):
-                f.seek(0)
-                f.write(os.urandom(min(size, 1024*1024)))
-                f.flush()
-                os.fsync(f.fileno())
-        temp_name = path.parent / os.urandom(16).hex()
-        path.rename(temp_name)
-        temp_name.unlink()
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# MAIN CONTROLLER
+# MAIN ENGINE CONTROLLER
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class KjaguMain:
-    """Main controller orchestrating the agentic pipeline"""
+    """Endpoint orchestrator coordinating recon, analysis, verification, and action"""
 
     def __init__(self, config: Optional[KjaguConfig] = None):
         self.config = config or KjaguConfig.load()
-        self.llm = LLMClient(self.config)
-        self.vault = KjaguCryptoVault()
+        self.vault = KjaguCryptoVault() if HAS_CRYPTO else None
+        self.quarantine = KjaguQuarantineVault()
 
-        # Agents
         self.recon = ReconAgent()
-        self.analyzer = AnalyzerAgent(self.llm, self.config)
+        self.analyzer = AnalyzerAgent(self.config)
         self.verdict = VerdictAgent(self.config)
         self.actor = ActorAgent(self.config)
 
-        # Results
         self.evidence: List[Evidence] = []
         self.hypotheses: List[Hypothesis] = []
         self.reports: List[ThreatReport] = []
 
-    def run(self, deep_dive: bool = True) -> Dict:
-        """Run full agentic pipeline"""
-        print("""
-    ╔═══════════════════════════════════════════════════════════════════════╗
-    ║                                                                       ║
-    ║   ██╗  ██╗     ██╗  █████╗  ██████╗ ██╗   ██╗     █████╗ ██╗         ║
-    ║   ██║ ██╔╝     ██║ ██╔══██╗██╔════╝ ██║   ██║    ██╔══██╗██║         ║
-    ║   █████╔╝      ██║ ███████║██║  ███╗██║   ██║    ███████║██║         ║
-    ║   ██╔═██╗ ██   ██║ ██╔══██║██║   ██║██║   ██║    ██╔══██║██║         ║
-    ║   ██║  ██╗╚█████╔╝ ██║  ██║╚██████╔╝╚██████╔╝    ██║  ██║███████╗    ║
-    ║   ╚═╝  ╚═╝ ╚════╝  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝     ╚═╝  ╚═╝╚══════╝    ║
-    ║                                                                       ║
-    ║     KJAGU v3.0 — AGENTIC AI ANTI-SPYWARE ENGINE                     ║
-    ║     LLM: {model}                                                    ║
-    ║                                                                       ║
-    ╚═══════════════════════════════════════════════════════════════════════╝
-        """.format(model=self.config.model))
+    def run(self, quick: bool = False, custom_json: Optional[str] = None) -> Dict:
+        start_time = time.time()
+        print(CLIStyle.banner())
+        print(f"  {CLIStyle.GRAY}Engine: Standalone Heuristics · Mitigation: {'Aggressive' if self.config.enable_aggressive_mode else 'Safe Confirmation'}{CLIStyle.RESET}\n")
 
         # Phase 1: Recon
-        print("\n[*] PHASE 1: RECON — Collecting system evidence...")
-        self.evidence = self.recon.collect_all()
+        print(f"  {CLIStyle.CYAN}●{CLIStyle.RESET} Auditing system telemetry ({'Quick' if quick else 'Deep Recon'})...")
+        self.evidence = self.recon.collect_all(quick=quick)
 
-        # Phase 2: Analysis (batched)
-        print("\n[*] PHASE 2: ANALYZER — AI analyzing evidence...")
-        self.hypotheses = []
-        batch_size = self.config.evidence_limit
-
-        for i in range(0, len(self.evidence), batch_size):
-            batch = self.evidence[i:i+batch_size]
-            hyps = self.analyzer.analyze_evidence_batch(batch)
-            self.hypotheses.extend(hyps)
-            print(f"    Batch {i//batch_size + 1}: {len(hyps)} hypotheses")
-
-        # Deep dive on high-confidence targets
-        if deep_dive:
-            print("\n[*] PHASE 2b: DEEP DIVE — AI investigating high-confidence targets...")
-            high_conf = [h for h in self.hypotheses if h.confidence >= 0.7]
-            evidence_map = {e.evidence_id: e for e in self.evidence}
-
-            # Find unique targets
-            targets = set()
-            for h in high_conf:
-                for ev_id in h.evidence_refs:
-                    if ev_id in evidence_map:
-                        ev = evidence_map[ev_id]
-                        pid = ev.data.get("pid", 0)
-                        name = ev.data.get("process_name", ev.data.get("name", "unknown"))
-                        if pid > 0:
-                            targets.add((pid, name))
-
-            for pid, name in list(targets)[:5]:  # Limit to top 5
-                deep_hyp = self.analyzer.deep_dive_process(pid, name, self.evidence)
-                if deep_hyp:
-                    self.hypotheses.append(deep_hyp)
-                    print(f"    Deep dive on {name} (PID {pid}): confidence {deep_hyp.confidence:.0%}")
+        # Phase 2: Analysis
+        print(f"  {CLIStyle.CYAN}●{CLIStyle.RESET} Correlating threats across {len(self.evidence)} evidence vectors...")
+        self.hypotheses = self.analyzer.analyze_evidence_batch(self.evidence)
 
         # Phase 3: Verdict
-        print("\n[*] PHASE 3: VERDICT — Cross-validating findings...")
+        print(f"  {CLIStyle.CYAN}●{CLIStyle.RESET} Filtering false positives & cross-validating heuristics...")
         evidence_map = {e.evidence_id: e for e in self.evidence}
         self.reports = self.verdict.render_verdicts(self.hypotheses, self.evidence, evidence_map)
 
         # Phase 4: Action
-        print("\n[*] PHASE 4: ACTOR — Executing approved actions...")
+        print(f"  {CLIStyle.CYAN}●{CLIStyle.RESET} Executing mitigation & isolation policies...")
         action_results = self.actor.execute(self.reports, self.vault)
 
-        # Phase 5: Report
-        print("\n" + "="*70)
-        print("SCAN RESULTS")
-        print("="*70)
-        print(f"Total Evidence Collected: {len(self.evidence)}")
-        print(f"AI Hypotheses Generated: {len(self.hypotheses)}")
-        print(f"Verified Threats: {len(self.reports)}")
-        print(f"\nActions Taken:")
-        print(f"  Terminated: {len(action_results['terminated'])}")
-        print(f"  Quarantined: {len(action_results['quarantined'])}")
-        print(f"  Pending Approval: {len(action_results['investigated'])}")
-        print(f"  Cookie Vaults: {len(action_results['cookies_encrypted'])}")
-        print(f"  Failed: {len(action_results['failed'])}")
+        duration = time.time() - start_time
+        print(f"  {CLIStyle.GREEN}✔{CLIStyle.RESET} Threat audit finished in {duration:.2f}s\n")
 
+        # Telemetry Display
         if self.reports:
-            print(f"\n--- TOP THREATS ---")
-            for r in self.reports[:10]:
-                status = "✓" if r.action_taken not in ["PENDING", "PENDING_APPROVAL"] else "○"
-                print(f"{status} [{r.severity}] {r.target_name} (PID:{r.target_pid}) — "
-                      f"Consensus: {r.consensus_score:.0%} — Action: {r.action_taken}")
-                if r.description:
-                    for line in r.description.split("\n")[:2]:
-                        print(f"    {line}")
+            print(f"{CLIStyle.RED}┌── THREATS DETECTED ({len(self.reports)}) ─────────────────────────────────────┐{CLIStyle.RESET}")
+            for r in self.reports:
+                sev_color = CLIStyle.RED if r.severity in ["CRITICAL", "HIGH"] else CLIStyle.YELLOW
+                mitres = list({h.mitre_technique for h in r.hypotheses if h.mitre_technique})
+                mitre_str = ", ".join(mitres) if mitres else "T1055"
+                print(f"{sev_color}│{CLIStyle.RESET} Target    : {CLIStyle.BOLD}{r.target_name}{CLIStyle.RESET} (PID: {r.target_pid})")
+                print(f"{sev_color}│{CLIStyle.RESET} Severity  : {sev_color}{r.severity}{CLIStyle.RESET} [Confidence: {r.consensus_score:.0%}]")
+                if r.target_path:
+                    print(f"{sev_color}│{CLIStyle.RESET} Path      : {CLIStyle.GRAY}{r.target_path}{CLIStyle.RESET}")
+                print(f"{sev_color}│{CLIStyle.RESET} MITRE     : {mitre_str}")
+                desc_first = r.description.splitlines()[0] if r.description else "Suspicious heuristic behavior"
+                print(f"{sev_color}│{CLIStyle.RESET} Details   : {desc_first}")
+                print(f"{sev_color}│{CLIStyle.RESET} Action    : {CLIStyle.BOLD}{r.action_taken}{CLIStyle.RESET}")
+                print(f"{sev_color}├──────────────────────────────────────────────────────────────────┤{CLIStyle.RESET}")
+            print(f"{CLIStyle.RED}└──────────────────────────────────────────────────────────────────┘{CLIStyle.RESET}\n")
+        else:
+            print(f"{CLIStyle.GREEN}✔ System Clean{CLIStyle.RESET}")
+            print(f"  {CLIStyle.GRAY}No active infostealers, memory injections, or persistence hooks detected.{CLIStyle.RESET}")
+            print(f"  {CLIStyle.GRAY}Audited {len(self.evidence)} evidence points across 7 vectors in {duration:.2f}s.{CLIStyle.RESET}\n")
 
-        # Save report
-        report_path = self._save_report()
-        print(f"\n[+] Full report: {report_path}")
+        report_path = self._save_report(custom_json)
+        print(f"  {CLIStyle.GRAY}Incident report exported -> {report_path}{CLIStyle.RESET}")
 
         return {
             "evidence_count": len(self.evidence),
-            "hypotheses_count": len(self.hypotheses),
             "threats": len(self.reports),
             "actions": action_results,
             "report_path": report_path
         }
 
-    def _save_report(self) -> str:
+    def _save_report(self, custom_path: Optional[str] = None) -> str:
         report = {
-            "scanner": "KJAGU-AI v3.0",
+            "scanner": "KJAGU v3.1",
             "timestamp": datetime.now().isoformat(),
-            "model": self.config.model,
-            "provider": self.config.ai_provider.value,
+            "mode": "standalone_heuristic",
             "evidence_count": len(self.evidence),
-            "hypotheses_count": len(self.hypotheses),
             "threats": [{
                 "id": r.threat_id,
                 "type": r.threat_type,
@@ -1348,112 +1135,180 @@ class KjaguMain:
                 "consensus": r.consensus_score,
                 "action": r.action_taken,
                 "description": r.description,
-                "mitre": [h.mitre_technique for h in r.hypotheses],
+                "mitre": list({h.mitre_technique for h in r.hypotheses if h.mitre_technique}),
             } for r in self.reports],
         }
-        path = Path.home() / "kjagu_ai_report.json"
-        with open(path, 'w') as f:
-            json.dump(report, f, indent=2)
+        path = Path(custom_path) if custom_path else (Path.home() / "kjagu_report.json")
+        try:
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(report, f, indent=2)
+        except Exception as e:
+            logger.error(f"[REPORT] Failed to save report: {e}")
         return str(path)
 
 
-class MEMORY_BASIC_INFORMATION(ctypes.Structure):
-    _fields_ = [
-        ("BaseAddress", ctypes.c_void_p),
-        ("AllocationBase", ctypes.c_void_p),
-        ("AllocationProtect", ctypes.c_ulong),
-        ("RegionSize", ctypes.c_size_t),
-        ("State", ctypes.c_ulong),
-        ("Protect", ctypes.c_ulong),
-        ("Type", ctypes.c_ulong),
-    ]
+# ═══════════════════════════════════════════════════════════════════════════════
+# CLAUDE-STYLE INTERACTIVE CLI SHELL
+# ═══════════════════════════════════════════════════════════════════════════════
 
-
-def setup_wizard():
-    """Interactive setup for first run"""
-    print("""
-    ╔═══════════════════════════════════════════════════════════════════════╗
-    ║              KJAGU AI — FIRST TIME SETUP                            ║
-    ╚═══════════════════════════════════════════════════════════════════════╝
-    """)
-
-    config = KjaguConfig()
-
-    print("Choose AI Provider:")
-    print("  1. Ollama (local, free, recommended)")
-    print("  2. OpenAI (GPT-4o-mini, fast, requires API key)")
-    print("  3. Anthropic (Claude, requires API key)")
-    print("  4. DeepSeek (cheap, requires API key)")
-    choice = input("\nChoice [1-4]: ").strip()
-
-    if choice == "1":
-        config.ai_provider = AIProvider.OLLAMA
-        url = input("Ollama URL [http://localhost:11434]: ").strip()
-        config.api_base = url or "http://localhost:11434"
-        model = input("Model [qwen2.5:14b]: ").strip()
-        config.model = model or "qwen2.5:14b"
-    elif choice == "2":
-        config.ai_provider = AIProvider.OPENAI
-        config.api_key = input("OpenAI API Key: ").strip()
-        config.api_base = "https://api.openai.com/v1"
-        config.model = "gpt-4o-mini"
-    elif choice == "3":
-        config.ai_provider = AIProvider.ANTHROPIC
-        config.api_key = input("Anthropic API Key: ").strip()
-        config.api_base = "https://api.anthropic.com"
-        config.model = "claude-3-haiku-20240307"
-    elif choice == "4":
-        config.ai_provider = AIProvider.DEEPSEEK
-        config.api_key = input("DeepSeek API Key: ").strip()
-        config.api_base = "https://api.deepseek.com/v1"
-        config.model = "deepseek-chat"
-
-    print("\nUser Context (helps reduce false positives):")
-    print("  e.g., 'gamer', 'developer', 'crypto trader', 'general user'")
-    config.user_context = input("Your context: ").strip().lower()
-
-    print("\nAggressive Mode:")
-    print("  If enabled, Kjagu will auto-kill threats without asking.")
-    aggro = input("Enable? [y/N]: ").strip().lower()
-    config.enable_aggressive_mode = aggro == 'y'
-
-    config.save()
-    print("\n[+] Configuration saved to ~/.kjagu/config.json")
-    print("[+] You can change settings anytime by editing that file or setting env vars.")
-    return config
-
-
-def main():
-    """CLI entry point"""
-    # Check for setup
-    config_path = Path.home() / ".kjagu" / "config.json"
-    if not config_path.exists():
-        config = setup_wizard()
-    else:
-        config = KjaguConfig.load()
-        # Allow env vars to override
-        if os.environ.get("KJAGU_OPENAI_KEY"):
-            config.ai_provider = AIProvider.OPENAI
-            config.api_key = os.environ["KJAGU_OPENAI_KEY"]
-
-    # Check if LLM is reachable
-    if config.ai_provider == AIProvider.OLLAMA:
-        try:
-            req = urllib.request.Request(f"{config.api_base}/api/tags", method='GET')
-            with urllib.request.urlopen(req, timeout=5):
-                pass
-        except:
-            print("[!] WARNING: Cannot connect to Ollama. Make sure it's running:")
-            print("    ollama serve")
-            print("    ollama pull qwen2.5:14b")
-            print("\n[!] Kjagu will fall back to heuristic-only mode (no AI analysis).")
-            input("Press Enter to continue anyway...")
+def interactive_cli(config: KjaguConfig):
+    """Modern Claude / AI CLI interactive terminal shell"""
+    print(CLIStyle.banner())
+    print(f"""
+  {CLIStyle.BOLD}Available Commands:{CLIStyle.RESET}
+    {CLIStyle.CYAN}/scan{CLIStyle.RESET}       Execute deep endpoint scan across all vectors
+    {CLIStyle.CYAN}/quick{CLIStyle.RESET}      Fast scan (processes, active connections & RWX memory)
+    {CLIStyle.CYAN}/vault{CLIStyle.RESET}      Encrypt browser cookie stores against infostealers
+    {CLIStyle.CYAN}/quarantine{CLIStyle.RESET} View isolated artifacts & safe restore
+    {CLIStyle.CYAN}/status{CLIStyle.RESET}     System telemetry & policy summary
+    {CLIStyle.CYAN}/help{CLIStyle.RESET}       Display command assistance
+    {CLIStyle.CYAN}/exit{CLIStyle.RESET}       Quit Kjagu
+""")
 
     kjagu = KjaguMain(config)
-    results = kjagu.run(deep_dive=True)
 
-    print("\n[*] Kjagu Agentic Scan Complete.")
-    return results
+    while True:
+        try:
+            cmd = input(f"{CLIStyle.BOLD}kjagu{CLIStyle.RESET} {CLIStyle.CYAN}❯{CLIStyle.RESET} ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print(f"\n{CLIStyle.GRAY}Exiting Kjagu. Stay secure.{CLIStyle.RESET}")
+            break
+
+        if not cmd:
+            continue
+
+        if cmd in ["/scan", "scan", "deep", "/deep"]:
+            kjagu.run(quick=False)
+            print()
+        elif cmd in ["/quick", "quick"]:
+            kjagu.run(quick=True)
+            print()
+        elif cmd in ["/vault", "vault"]:
+            if not HAS_CRYPTO:
+                print(f"  {CLIStyle.YELLOW}[!] Cryptography library required. Run: pip install cryptography{CLIStyle.RESET}\n")
+            else:
+                vault = KjaguCryptoVault()
+                print(f"  {CLIStyle.CYAN}●{CLIStyle.RESET} Securing browser cookies across Chrome, Edge, Brave, Firefox...")
+                res = vault.encrypt_all_cookies()
+                print(f"  {CLIStyle.GREEN}✔{CLIStyle.RESET} Encrypted {len(res)} cookie databases with AES-256-GCM.\n")
+        elif cmd in ["/quarantine", "quarantine"]:
+            qv = KjaguQuarantineVault()
+            items = qv.list_items()
+            print(f"\n  {CLIStyle.BOLD}Quarantine Vault ({len(items)} artifacts):{CLIStyle.RESET}")
+            if not items:
+                print(f"    {CLIStyle.GRAY}(Quarantine is empty){CLIStyle.RESET}\n")
+            else:
+                for item in items:
+                    print(f"    ID: {CLIStyle.CYAN}{item['id']}{CLIStyle.RESET} | Threat: {CLIStyle.RED}{item['threat_name']}{CLIStyle.RESET} | Path: {item['original_path']}")
+                sub = input(f"\n  Enter ID to restore (or Enter to cancel): ").strip()
+                if sub:
+                    if qv.restore_file(sub):
+                        print(f"  {CLIStyle.GREEN}✔ Successfully restored {sub}.{CLIStyle.RESET}\n")
+                    else:
+                        print(f"  {CLIStyle.RED}✖ Failed to restore {sub}.{CLIStyle.RESET}\n")
+        elif cmd.startswith("restore ") or cmd.startswith("/restore "):
+            target_id = cmd.split(maxsplit=1)[1].strip()
+            qv = KjaguQuarantineVault()
+            if qv.restore_file(target_id):
+                print(f"  {CLIStyle.GREEN}✔ Successfully restored artifact {target_id}.{CLIStyle.RESET}\n")
+            else:
+                print(f"  {CLIStyle.RED}✖ Failed to restore artifact {target_id}.{CLIStyle.RESET}\n")
+        elif cmd in ["/status", "status"]:
+            qv = KjaguQuarantineVault()
+            q_count = len(qv.list_items())
+            print(f"""
+  {CLIStyle.BOLD}Endpoint Status:{CLIStyle.RESET}
+    Platform            : {sys.platform}
+    Mitigation Policy   : {'Aggressive (Auto-Kill)' if config.enable_aggressive_mode else 'Safe Confirmation'}
+    Quarantined Files   : {q_count}
+    Crypto Vault Engine : {'Active (AES-256-GCM)' if HAS_CRYPTO else 'Unavailable (pip install cryptography)'}
+    Core Intelligence   : Local Heuristic & Behavioral Engine (Zero API Keys)
+""")
+        elif cmd in ["/help", "help", "?"]:
+            print(f"""
+  {CLIStyle.BOLD}Available Commands:{CLIStyle.RESET}
+    {CLIStyle.CYAN}/scan{CLIStyle.RESET}            Run comprehensive threat scan
+    {CLIStyle.CYAN}/quick{CLIStyle.RESET}           Run fast process & memory audit
+    {CLIStyle.CYAN}/vault{CLIStyle.RESET}           Encrypt browser cookies
+    {CLIStyle.CYAN}/quarantine{CLIStyle.RESET}      View quarantined files
+    {CLIStyle.CYAN}/restore <id>{CLIStyle.RESET}    Restore quarantined file
+    {CLIStyle.CYAN}/status{CLIStyle.RESET}          Display telemetry & policy settings
+    {CLIStyle.CYAN}/exit{CLIStyle.RESET}            Exit shell
+""")
+        elif cmd in ["/exit", "exit", "quit", "q"]:
+            print(f"  {CLIStyle.GRAY}Exiting Kjagu. Stay secure.{CLIStyle.RESET}")
+            break
+        else:
+            print(f"  {CLIStyle.GRAY}Unknown command '{cmd}'. Type {CLIStyle.CYAN}/help{CLIStyle.GRAY} for options.{CLIStyle.RESET}\n")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# CLI ENTRY POINT
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="KJAGU // Defensive Endpoint Threat Hunter v3.1",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  start.bat                           # Windows One-Click Launch
+  python kjagu_core.py                # Launch Interactive Claude-Style Shell
+  python kjagu_core.py --scan         # Non-interactive deep endpoint audit
+  python kjagu_core.py --quick        # Quick process and memory scan
+  python kjagu_core.py --aggressive   # Auto-neutralize confirmed threats
+  python kjagu_core.py --vault        # Encrypt browser cookies
+  python kjagu_core.py --restore ID   # Restore quarantined file by ID
+        """
+    )
+    parser.add_argument("--scan", action="store_true", help="Execute deep endpoint threat scan")
+    parser.add_argument("--quick", action="store_true", help="Quick scan (processes and memory only)")
+    parser.add_argument("--aggressive", "--kill", dest="aggressive", action="store_true", help="Automatically neutralize verified threats")
+    parser.add_argument("--vault", action="store_true", help="Encrypt browser cookie stores")
+    parser.add_argument("--quarantine-list", action="store_true", help="List quarantined files")
+    parser.add_argument("--restore", metavar="ID", help="Restore quarantined item by ID")
+    parser.add_argument("--json", metavar="PATH", help="Export report to custom JSON path")
+
+    args = parser.parse_args()
+
+    config = KjaguConfig.load()
+    if args.aggressive:
+        config.enable_aggressive_mode = True
+
+    # Standalone flag execution
+    if args.quarantine_list:
+        qv = KjaguQuarantineVault()
+        items = qv.list_items()
+        print(f"\nQuarantine Vault ({len(items)} artifacts):")
+        for item in items:
+            print(f"  ID: {item['id']} | Threat: {item['threat_name']} | Path: {item['original_path']}")
+        return
+
+    if args.restore:
+        qv = KjaguQuarantineVault()
+        if qv.restore_file(args.restore):
+            print(f"[+] Successfully restored artifact {args.restore}.")
+        else:
+            print(f"[-] Failed to restore artifact {args.restore}.")
+        return
+
+    if args.vault:
+        if not HAS_CRYPTO:
+            print("[!] Cryptography library required. Run: pip install cryptography")
+            return
+        vault = KjaguCryptoVault()
+        print("[*] Encrypting browser cookies with AES-256-GCM...")
+        res = vault.encrypt_all_cookies()
+        print(f"[+] Protected {len(res)} browser databases.")
+        return
+
+    if args.scan or args.quick:
+        kjagu = KjaguMain(config)
+        kjagu.run(quick=args.quick, custom_json=args.json)
+        return
+
+    # No flags -> Launch Claude-style interactive CLI
+    interactive_cli(config)
 
 
 if __name__ == "__main__":
