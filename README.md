@@ -1,4 +1,18 @@
-# KJAGU // Defensive Endpoint Threat Hunter & Browser Shield
+<div align="center">
+
+  <img src="assets/kjagu_animated_shield.gif" alt="KJAGU // Defensive Threat Hunter Shield" width="640" />
+
+  <br/><br/>
+
+  <a href="https://github.com/demonala/Kjagu-Development-State"><img src="https://img.shields.io/badge/license-MIT-00FF73?style=flat-square&labelColor=060907" alt="License" /></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-00FF73?style=flat-square&labelColor=060907" alt="Platform" />
+  <img src="https://img.shields.io/badge/python-3.10%2B-00FF73?style=flat-square&labelColor=060907" alt="Python" />
+  <img src="https://img.shields.io/badge/architecture-Zero--API%20%7C%20Local-00FF73?style=flat-square&labelColor=060907" alt="Architecture" />
+  <a href="https://github.com/demonala"><img src="https://img.shields.io/badge/org-Absolute%20Immortal%20Inc.-FFC000?style=flat-square&labelColor=060907" alt="Research" /></a>
+
+</div>
+
+<br/>
 
 ```
   _  ______   _    ____ _   _ 
@@ -110,6 +124,10 @@ kjagu ❯ /help
 ---
 
 ### Option 2: Browser Extension & Free AI Bridge
+
+<div align="center">
+  <img src="assets/kjagu_badge.gif" alt="KJAGU Cyber Badge" width="160" />
+</div>
 
 The v4 prototype pairs a Chrome/Brave/Edge extension with the Python native bridge to provide free AI-assisted threat triage through web chat interfaces.
 
