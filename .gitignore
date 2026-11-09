@@ -10,3 +10,6 @@ venv/
 kjagu_report.json
 *.json
 !fixtures/*.json
+!bridge/host_manifest.json
+!extension/manifest.json
+*.pem

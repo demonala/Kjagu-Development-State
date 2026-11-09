@@ -1,4 +1,4 @@
-# KJAGU // Defensive Endpoint Threat Hunter
+# KJAGU // Defensive Endpoint Threat Hunter & Browser Shield
 
 ```
   _  ______   _    ____ _   _ 
@@ -7,103 +7,93 @@
  | . \ / __/ ___ \ |_| | |_| |
  |_|\_\_____/_/   \_\____|\___/ 
  DEFENSIVE ENDPOINT THREAT HUNTER
- Version 3.1 -- Absolute Immortal Inc.
+ Version 4.0 -- Absolute Immortal Inc.
 ```
 
-Kjagu is an autonomous, standalone endpoint threat hunter and anti-spyware engine designed to audit, triage, and neutralize infostealers, memory injections, unauthorized browser surveillance, and persistence hooks.
+Kjagu is a hybrid defensive endpoint security system and anti-spyware suite designed to audit, triage, and neutralize infostealers, memory injections, unauthorized browser surveillance, and persistence hooks.
 
-Built with a ZeroScript architecture model: **100% free, fully local, and requiring zero external LLM API keys**. All threat correlation, scoring, and classification runs locally through heuristic analysis pipelines and cross-validation matrices.
+Built around a **Zero-API-Key philosophy**: **100% free, requiring zero paid external LLM API tokens**. Kjagu offers two complementary operational modes:
+1. **Standalone Claude-Style CLI Shell:** Zero-overhead, 100% local heuristic correlation engine running entirely inside your terminal.
+2. **Browser Shield Extension & Native Messaging Bridge:** Manifest V3 browser extension and IPC bridge integrating free browser-based AI analysis (DeepSeek / Kimi chat) without API keys.
 
 ---
 
-## Key Highlights
+## Architecture Overview
 
-- **Zero API Dependency:** No OpenAI, Anthropic, DeepSeek, or Ollama requirements. Zero telemetry sent off-box.
+```
++-----------------------------------------------------------------------------------+
+|                                 KJAGU ECOSYSTEM                                   |
++-----------------------------------------------------------------------------------+
+|                                                                                   |
+|  [MODE 1: STANDALONE CLI ENGINE]                  [MODE 2: BROWSER SHIELD & BRIDGE]  |
+|                                                                                   |
+|  +-----------------------------+                  +----------------------------+  |
+|  |       kjagu_core.py         |                  |    Manifest V3 Extension   |  |
+|  |  * Claude-Style Terminal UI |                  |  * Chrome / Brave / Edge   |  |
+|  |  * Local Heuristic Matrix   |                  |  * Injected Chat HUD       |  |
+|  |  * Zero Cloud / Zero Keys   |                  |  * Cookie & Storage Shield |  |
+|  +-----------------------------+                  +----------------------------+  |
+|                 |                                                |                |
+|                 v                                                v                |
+|  +-----------------------------+                  +----------------------------+  |
+|  |     Endpoint Subsystems     |                  |   Native Messaging Bridge  |  |
+|  |  * Process Memory Auditing  |                  |  * com.kjagu.ridit         |  |
+|  |  * C2 Socket Correlation    |                  |  * kjagu_bridge.py / .bat  |  |
+|  |  * Registry Persistence     |                  +----------------------------+  |
+|  |  * Safe Quarantine Vault    |                                 |                |
+|  +-----------------------------+                                 v                |
+|                                                   +----------------------------+  |
+|                                                   |   Modular Scanner Core     |  |
+|                                                   |  * Recon Module (Telemetry)|  |
+|                                                   |  * Reverse Engineer (PE)   |  |
+|                                                   |  * Kernel Access Hooks     |  |
+|                                                   |  * Approval Action System  |  |
+|                                                   +----------------------------+  |
++-----------------------------------------------------------------------------------+
+```
+
+---
+
+## Key Capabilities
+
+- **Zero Paid API Requirement:** No OpenAI, Anthropic, or DeepSeek API subscription required. Use local standalone heuristics or free browser chat bridges.
 - **Claude-Style Terminal UI:** Modern terminal interface featuring ANSI palettes, box drawing, real-time stage progression indicators (`●`, `✔`, `▲`), and structured threat incident cards.
-- **One-Click Launchers:** Zero-friction setup via `start.bat` (Windows) and `start.sh` (Linux) with automated virtual terminal configuration and dependency verification.
-- **Multi-Vector Telemetry:** Concurrent auditing of processes, unbacked memory regions, network sockets, browser extensions, registry hooks, and startup artifacts.
+- **Browser Shield Extension (v4.0 Prototype):** Manifest V3 extension for Chrome, Brave, and Edge with an in-browser HUD on `chat.deepseek.com` and `kimi.moonshot.cn` for zero-cost AI triage.
+- **Chrome Native Messaging Bridge:** 32-bit length-prefixed JSON protocol over stdin/stdout connecting browser security controls to the local Python engine.
+- **Multi-Vector Telemetry:** Concurrent auditing of processes, unbacked memory regions (`PAGE_EXECUTE_READWRITE`), network sockets, browser extensions, registry hooks, and startup artifacts.
+- **Static PE Reverse Engineering:** Automated entropy calculation, PE header parsing, import table extraction, and packer detection (`scanner/reverse_engineer.py`).
 - **Safe Isolation & Quarantine Vault:** Isolated file containment with AES-256-GCM metadata tracking and full rollback capability. Files are never irreversibly deleted without administrator intent.
 - **Hardware-Bound Cookie Vault:** Transparent AES-256-GCM encryption of Chromium and Gecko credential databases keyed to hardware identifiers (CPU, BIOS, and disk serials).
 
 ---
 
-## Threat Detection Vectors
-
-Kjagu correlates low-level endpoint telemetry across 7 distinct investigative phases:
-
-```
-+-------------------------------------------------------------------------+
-|                         RECON TELEMETRY GATHERING                       |
-|   Processes  |  Memory RWX  |  Sockets  |  Registry  |  Extensions      |
-+-------------------------------------------------------------------------+
-                                    |
-                                    v
-+-------------------------------------------------------------------------+
-|                       HEURISTIC CORRELATION MATRIX                      |
-|   Rule Matching  |  Behavioral Scoring  |  Masquerade Classification    |
-+-------------------------------------------------------------------------+
-                                    |
-                                    v
-+-------------------------------------------------------------------------+
-|                          CONSENSUS VALIDATION                           |
-|   False-Positive Suppression  |  Known Vendor Whitelisting              |
-+-------------------------------------------------------------------------+
-                                    |
-                                    v
-+-------------------------------------------------------------------------+
-|                          MITIGATION PIPELINE                            |
-|   Interactive Confirmation  |  Quarantine Staging  |  Cookie Protection |
-+-------------------------------------------------------------------------+
-```
-
-1. **Process Masquerading:** Identifies binaries impersonating core system executables (`svchost.exe`, `lsass.exe`, `explorer.exe`) executing out of non-standard directories (`AppData`, `Temp`, `Users/Public`).
-2. **Memory Injections:** Flags unbacked executable memory allocations (`PAGE_EXECUTE_READWRITE`), hollowed process memory spaces, and injected threads.
-3. **Network Beaconing:** Correlates active sockets against known malicious C2 ports, non-standard outbound HTTP/S tunnels, and ephemeral socket spikes.
-4. **Persistence Hooks:** Scans Windows Run/RunOnce registry hives, Winlogon keys, user startup folders, and scheduled tasks for unauthorized autorun entries.
-5. **Browser Extension Auditing:** Detects unpacked extensions, sideloaded CRX manifests requesting excessive permissions (`debugger`, `webRequestBlocking`, `<all_urls>`), and telemetry scrapers.
-6. **Infostealer Fingerprints:** Hunts for active grabbers targeting Telegram sessions, Discord tokens, crypto wallet keys, and developer credential stores.
-7. **Safe Quarantine System:** Quarantined binaries are neutralized, stamped with SHA-256 checksums, and safely isolated inside `.kjagu_vault/` with instant restoration support.
-
----
-
 ## Quickstart
 
-### Windows (Single-Click Launch)
+### Option 1: Standalone CLI (Recommended for Fast Triage)
 
-Simply double-click `start.bat` or run from PowerShell / Command Prompt:
+Single-click launcher for Windows:
 
 ```cmd
 start.bat
 ```
 
-The launcher automatically configures UTF-8 console output, checks for Python 3.10+, installs required dependencies from `requirements.txt`, and boots the interactive Claude-style shell.
-
-### Linux / WSL
+For Linux / WSL:
 
 ```bash
 chmod +x start.sh
 ./start.sh
 ```
 
-### Manual Execution
+Or run directly with Python:
 
 ```bash
 pip install -r requirements.txt
 python kjagu_core.py
 ```
 
----
-
-## Interactive Shell
-
-When launched without arguments, Kjagu enters an interactive terminal shell:
+#### Interactive Terminal Commands
 
 ```
-╭──────────────────────────────────────────────────────────────────╮
-│  ● KJAGU // Defensive Endpoint Threat Hunter                     │
-│    Zero API Keys · Local Heuristic Engine · v3.1 · Ready          │
-╰──────────────────────────────────────────────────────────────────╯
-
 kjagu ❯ /help
 
   Commands:
@@ -117,96 +107,99 @@ kjagu ❯ /help
     /exit         Exit Kjagu
 ```
 
-### Incident Card Preview
+---
 
-When an endpoint anomaly is detected, Kjagu renders an actionable card:
+### Option 2: Browser Extension & Free AI Bridge
+
+The v4 prototype pairs a Chrome/Brave/Edge extension with the Python native bridge to provide free AI-assisted threat triage through web chat interfaces.
+
+#### Step 1: Install Native Messaging Host
+
+Run the bridge setup script as Administrator:
+
+```cmd
+run_bridge.bat
+```
+
+This automatically:
+1. Updates `bridge/host_manifest.json` with your local installation path.
+2. Registers `com.kjagu.ridit` in the Windows Registry for Google Chrome, Brave Browser, Microsoft Edge, and Chromium.
+3. Prepares the desktop report destination (`%USERPROFILE%\Desktop\KjaguReports`).
+
+#### Step 2: Load the Extension
+
+1. Open your browser (**Chrome**, **Brave**, or **Edge**).
+2. Navigate to extensions management:
+   - Chrome: `chrome://extensions`
+   - Brave: `brave://extensions`
+   - Edge: `edge://extensions`
+3. Turn on **Developer mode** (toggle in the top-right corner).
+4. Click **Load unpacked**.
+5. Select the `extension/` folder inside this repository:
+   ```
+   C:\Users\USER\kjagu\extension
+   ```
+6. The extension with ID `afedgicomnmflgadegkmlemcipmpebce` will appear in your toolbar.
+
+#### Step 3: Launch Free AI Web Chat
+
+1. Open [chat.deepseek.com](https://chat.deepseek.com) or [kimi.moonshot.cn](https://kimi.moonshot.cn).
+2. The **KJAGU // AI SHIELD** floating panel will appear on the page.
+3. Click **START AI SCAN** or use the extension toolbar popup.
+4. Review threat cards, reverse engineering reports, and approve or dismiss neutralization actions directly inside your browser window.
+
+---
+
+## Directory Structure
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│ THREAT: INJECTED_PROCESS [CRITICAL]                              │
-├──────────────────────────────────────────────────────────────────┤
-│ PID:         4812                                                │
-│ Binary:      C:\Users\Public\svchost.exe                         │
-│ Hash:        e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca49 │
-│ Confidence:  94%                                                 │
-│ Vectors:     Parent: explorer.exe, RWX memory allocation         │
-│ Recommended: Terminate process and isolate binary                │
-└──────────────────────────────────────────────────────────────────┘
+kjagu/
+├── kjagu_core.py              # v3.1 Standalone Claude-Style CLI Engine
+├── start.bat                  # One-click Windows CLI launcher
+├── start.sh                   # Linux / WSL CLI launcher
+├── run_bridge.bat             # One-click Windows Bridge & Extension installer
+├── requirements.txt           # Python dependencies (psutil, cryptography, pywin32)
+├── README.md                  # Complete architectural documentation
+├── extension/                 # Manifest V3 Browser Extension
+│   ├── manifest.json          # Extension manifest with deterministic RSA public key
+│   ├── background.js          # Service worker managing Native Messaging port
+│   ├── content_script.js      # HUD injected into DeepSeek and Kimi chat
+│   ├── popup.html             # Toolbar popup interface
+│   ├── popup.js               # Popup event handler and status polling
+│   ├── popup.css              # Cyberpunk dark theme stylesheet
+│   └── icons/                 # Shield icons (16x16, 48x48, 128x128)
+├── bridge/                    # Native Messaging Host
+│   ├── host_manifest.json     # Chrome native host manifest
+│   ├── install_host.bat       # Multi-browser Windows registry installer
+│   ├── kjagu_bridge.bat       # Win32 batch launcher for Chrome CreateProcess
+│   └── kjagu_bridge.py        # 32-bit length-prefixed stdin/stdout IPC conduit
+└── scanner/                   # Modular v4 Scanning Core
+    ├── __init__.py            # Package export
+    ├── kjagu_engine.py        # Central orchestrator
+    ├── recon_module.py        # Process, memory, network & persistence collector
+    ├── reverse_engineer.py    # PE parser, entropy calculator & string extractor
+    ├── kernel_access.py       # Driver signature verification & privilege checks
+    ├── approval_system.py     # Interactive action gating (terminate / isolate)
+    ├── policy_manager.py      # Action authorization policies
+    └── report_generator.py    # JSON forensic report compiler
 ```
 
 ---
 
-## Command Line Flags
+## CLI Flags Reference
 
-Kjagu can be automated in scripts, scheduled tasks, and CI/CD pipelines using command-line arguments:
+For headless execution in scripts, scheduled tasks, or incident response workflows:
 
 | Flag | Description |
 |------|-------------|
 | `--scan` | Execute a complete multi-vector endpoint threat audit. |
 | `--quick` | Rapid triage scanning active processes and memory allocations only. |
-| `--aggressive`, `--kill` | Automatically neutralize and quarantine verified threats without interactive prompts. |
+| `--aggressive`, `--kill` | Automatically neutralize and quarantine verified threats without prompts. |
 | `--vault` | Lock and encrypt Chromium and Gecko cookie databases with hardware keys. |
 | `--quarantine-list` | Display all currently quarantined files, hashes, and isolation timestamps. |
 | `--restore <ID>` | Revert and restore a quarantined artifact back to its original path. |
 | `--json <PATH>` | Output machine-readable JSON forensic telemetry to a designated file path. |
 | `-h`, `--help` | Display command usage and option reference. |
-
-### CLI Usage Examples
-
-```bash
-# Perform non-interactive deep audit and output report to desktop
-python kjagu_core.py --scan --json C:\Users\USER\Desktop\audit.json
-
-# Rapid process and memory triage
-python kjagu_core.py --quick
-
-# Auto-neutralize confirmed infostealers and injectors
-python kjagu_core.py --scan --aggressive
-
-# Encrypt browser cookies against off-line dumping
-python kjagu_core.py --vault
-
-# View quarantine vault
-python kjagu_core.py --quarantine-list
-
-# Restore a false-positive file
-python kjagu_core.py --restore a1b2c3d4
-```
-
----
-
-## Quarantine Vault & Restoration
-
-Unlike basic cleanup scripts that permanently delete files, Kjagu employs a defensive quarantine architecture:
-
-- Quarantined binaries are stripped of execute permissions and relocated to `.kjagu_vault/`.
-- File content is encoded and tracked in an encrypted metadata registry with original path, SHA-256 hash, and detection context.
-- Files can be inspected or reverted at any time using `--restore <ID>` or via the interactive `/quarantine` menu.
-
----
-
-## Cookie Vault Protection
-
-Modern infostealers (RedLine, Lumma, Vidar, Stealc) target SQLite database files containing session cookies:
-
-- `Google\Chrome\User Data\Default\Network\Cookies`
-- `Microsoft\Edge\User Data\Default\Network\Cookies`
-- `BraveSoftware\Brave-Browser\User Data\Default\Network\Cookies`
-
-Kjagu's cookie vault locks these database files using AES-256-GCM. The encryption key is derived through PBKDF2 from hardware parameters unique to the machine (Motherboard UUID, CPU ID, Disk Volume serial). If an infostealer exfiltrates the encrypted database file, the contents cannot be decrypted on adversary infrastructure.
-
----
-
-## System Requirements
-
-- **Operating System:** Windows 10/11 (x64) or Linux (Kernel 5.4+)
-- **Python:** Version 3.10 or higher
-- **Privileges:** Administrator / Root required for deep memory scanning, driver verification, and process termination.
-- **Dependencies:**
-  - `psutil` (Process and system telemetry)
-  - `cryptography` (AES-256-GCM vault encryption)
-  - `pywin32` (Windows API bindings, optional on Linux)
-  - `wmi` (Windows Management Instrumentation, optional on Linux)
 
 ---
 

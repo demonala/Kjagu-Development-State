@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="header">
+    <div id="logo">KJAGU</div>
+    <div id="subtitle">ENDPOINT SHIELD v4.0</div>
+  </div>
+
+  <div id="status-bar">
+    <span id="connection-dot"></span>
+    <span id="connection-text">Checking bridge...</span>
+  </div>
+
+  <div id="main-controls">
+    <button id="btn-start" class="btn-primary">
+      <span class="btn-icon">></span>
+      <span class="btn-text">START AI SCAN</span>
+    </button>
+
+    <button id="btn-cookies" class="btn-secondary">
+      <span class="btn-icon">#</span>
+      <span class="btn-text">Encrypt Cookies</span>
+    </button>
+
+    <button id="btn-policy" class="btn-secondary">
+      <span class="btn-icon">+</span>
+      <span class="btn-text">Accept Policy</span>
+    </button>
+  </div>
+
+  <div id="scan-info" style="display:none;">
+    <div class="info-row">
+      <span class="info-label">Status:</span>
+      <span id="scan-status" class="info-value">Idle</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Evidence:</span>
+      <span id="evidence-count" class="info-value">0</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Pending:</span>
+      <span id="pending-count" class="info-value">0</span>
+    </div>
+  </div>
+
+  <div id="approvals-list"></div>
+
+  <div id="footer">
+    <div id="report-link"></div>
+    <div id="hint">Open DeepSeek or Kimi chat to use AI features</div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "KJAGU // Endpoint Defense Shield",
+  "version": "4.0",
+  "description": "Defensive anti-spyware and endpoint shield powered by local bridge and browser AI integration. Zero API keys required.",
+  "permissions": [
+    "nativeMessaging",
+    "activeTab",
+    "tabs",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://chat.deepseek.com/*",
+    "https://kimi.moonshot.cn/*",
+    "https://www.deepseek.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chat.deepseek.com/*",
+        "https://kimi.moonshot.cn/*",
+        "https://www.deepseek.com/*"
+      ],
+      "js": [
+        "content_script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvEnqIwioEP3JTb9rOXwL0ljs8TpmheRoMguYYXfPOKqc7LtG8WIPc+4XE/jAJa55NN1vzYujyC8Cq7THMjh4DoTa2wZmfaXBdpqG+gIr4wdDqgc76/6i9YP/yH9iM27RcNV+ttqOVCUw/HcyVjnklzb3/C5Al4sxpG0WEvKvWljMu5ErtbKPCpYB2zV3b80YWS4NSYQGZmatjKxd74VetuM30D99oqC6pLyZe0Z2pMlBuzewR3NGBTo6/T8arkvM3s0FGDj/4LBKz0peRssSkUHpQmgcoH5D31qJjIW/wYyZSlP5zeErTZrXpWaaJ/LdiN7L9HVZFgFVf3Xq3RUjYQIDAQAB"
+}

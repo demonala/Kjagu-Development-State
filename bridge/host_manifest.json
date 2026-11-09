@@ -1,0 +1,9 @@
+{
+  "name": "com.kjagu.ridit",
+  "description": "KJAGU // Native Messaging Bridge",
+  "path": "C:\\Users\\USER\\kjagu\\bridge\\kjagu_bridge.bat",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://afedgicomnmflgadegkmlemcipmpebce/"
+  ]
+}
